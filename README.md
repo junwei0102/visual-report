@@ -29,7 +29,15 @@ git clone <这个仓库> ~/.claude/skills/visual-report
 
 - Claude 桌面应用里：直接在侧栏渲染出来。
 - 终端里的 Claude Code：用系统浏览器打开。
-- 文件都存在 `~/.claude/visual-reports/<项目名>/`，按时间和标题命名，旁边有 `.md` 源稿。想换地方：环境变量 `VISUAL_REPORT_DIR`。
+- 远程机器 / 集群上：Claude 会起一个只有你能连的小服务，并给你一条 `ssh -fN -L …` 命令。在自己电脑上跑一次，之后 `http://localhost:<端口>/` 就能看这台机器上所有的报告（见下面「在集群上用」）。
+- 文件存在项目自己的 `.claude/reports/` 里（git 会忽略），按日期和标题命名，旁边有 `.md` 源稿。想集中存放：环境变量 `VISUAL_REPORT_DIR`。
+
+## 在集群上用
+
+1. 把 skill 装到集群上：`ssh <集群> 'git clone https://github.com/junwei0102/visual-report.git ~/.claude/skills/visual-report'`，再在集群的 `~/.claude/CLAUDE.md` 里加上面那段「汇报方式」。
+2. Claude 在集群上汇报时会打印一条形如 `ssh -fN -L 4xxxx:/run/user/<uid>/visual-report/server.sock <你>@<节点>` 的命令。在**自己电脑**的终端里跑一次（第一次要过 MFA）。
+3. 打开它给的 `http://localhost:4xxxx/...` 链接。首页 `http://localhost:4xxxx/` 列出这台机器上所有报告。
+4. 打不开：`pkill -f -- "-L 4xxxx:"` 关掉旧转发再重跑；报 `connect failed` 说明服务停了或换了节点，让 Claude 重新 `start`。原理和排错见 `references/remote-clusters.md`。
 
 ## 自己也能用
 
@@ -52,7 +60,13 @@ Markdown 之外多了几个「组件」，都是围栏代码块：
 | `[[术语\|白话解释]]` | 悬停解释 |
 | `==文字==` | 高亮 |
 
-完整说明见 `SKILL.md`、`references/writing.md`（怎么写）和 `references/diagrams.md`（怎么画）。
+报告服务单独用：
+
+```bash
+python3 ~/.claude/skills/visual-report/scripts/serve_reports.py start   # 或 status / stop / url 某份报告.html
+```
+
+完整说明见 `SKILL.md`、`references/writing.md`（怎么写）、`references/diagrams.md`（怎么画）和 `references/remote-clusters.md`（集群上怎么看）。
 
 ## 改样式
 

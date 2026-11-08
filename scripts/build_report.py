@@ -29,6 +29,7 @@ import argparse
 import base64
 import datetime as _dt
 import html as _html
+import json
 import mimetypes
 import os
 import re
@@ -40,7 +41,8 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE = SKILL_DIR / "assets" / "template.html"
-DEFAULT_BASE_DIR = Path(os.environ.get("VISUAL_REPORT_DIR", Path.home() / ".claude" / "visual-reports"))
+CENTRAL_DIR = os.environ.get("VISUAL_REPORT_DIR")  # 设了就把所有报告集中放在这里的 <项目名>/ 下
+REGISTRY = Path(os.environ.get("VISUAL_REPORT_REGISTRY", Path.home() / ".claude" / "visual-reports" / "registry.json"))
 
 KIND_LABELS = {"plan": "计划", "result": "结果", "explain": "解释", "note": "说明"}
 TLDR_LABELS = {"plan": "打算这么做", "result": "结论", "explain": "一句话", "note": "要点"}
@@ -705,7 +707,7 @@ def render_flow(info, body, ctx):
             y += row_h[l] + gaps[l]
         W, H = max_span + 2 * MARGIN + (34 if has_back else 0), y + MARGIN
     if direction == "LR" and W > 820:
-        warn("流程图很宽（%.0f px），会被缩小。可以加一行 direction: TB 改成竖排，或者用 \\n 给长标签手动换行" % W)
+        warn(r"流程图很宽（%.0f px），会被缩小。可以加一行 direction: TB 改成竖排，或者用 \n 给长标签手动换行" % W)
     for nd in nodes.values():
         nd["cx"], nd["cy"] = nd["x"] + nd["w"] / 2, nd["y"] + nd["h"] / 2
 
@@ -831,14 +833,52 @@ def parse_front_matter(text):
     return meta, text, 0
 
 
-def detect_project():
+def project_root():
+    """git 仓库根目录；不在仓库里就是当前目录。"""
     try:
         top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=5)
         if top.returncode == 0 and top.stdout.strip():
-            return Path(top.stdout.strip()).name
+            return Path(top.stdout.strip())
     except Exception:
         pass
-    return Path.cwd().name
+    return Path.cwd()
+
+
+def detect_project():
+    return project_root().name
+
+
+def default_out_dir(project):
+    """报告默认放在项目自己的 .claude/reports/ 里（里面放一个只含 * 的 .gitignore，git 不会看到它们），
+    这样桌面应用能直接在侧栏里打开（它只打开会话文件夹里的文件）。设了 VISUAL_REPORT_DIR 就集中放。"""
+    if CENTRAL_DIR:
+        return Path(CENTRAL_DIR).expanduser() / safe_name(project)
+    d = project_root() / ".claude" / "reports"
+    d.mkdir(parents=True, exist_ok=True)
+    ignore = d / ".gitignore"
+    if not ignore.exists():
+        ignore.write_text("*\n")
+    return d
+
+
+def register(out, title, kind, project):
+    """把这份报告记到 ~/.claude/visual-reports/registry.json，报告服务（serve_reports.py）靠它列目录。"""
+    try:
+        REGISTRY.parent.mkdir(parents=True, exist_ok=True)
+        entries = []
+        if REGISTRY.is_file():
+            try:
+                entries = json.loads(REGISTRY.read_text(encoding="utf-8"))
+            except ValueError:
+                entries = []
+        entries = [e for e in entries if e.get("path") != str(out) and Path(e.get("path", "")).is_file()]
+        entries.append({"path": str(out), "title": title, "kind": kind, "project": project,
+                        "time": _dt.datetime.now().strftime("%Y-%m-%d %H:%M")})
+        tmp = REGISTRY.with_suffix(".tmp")
+        tmp.write_text(json.dumps(entries, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, REGISTRY)
+    except OSError as e:
+        warn("没能更新报告登记表 %s：%s" % (REGISTRY, e))
 
 
 def slugify(title, limit=40):
@@ -866,11 +906,12 @@ def main():
     ap = argparse.ArgumentParser(description="把 Markdown 汇报稿编译成单文件 HTML", add_help=True)
     ap.add_argument("source", help="Markdown 源文件")
     ap.add_argument("--out", help="输出的 HTML 路径（默认放在报告目录里，按日期和标题命名；同一份稿子重编译会覆盖）")
-    ap.add_argument("--out-dir", help="输出目录（默认 ~/.claude/visual-reports/<项目名>/，也可用环境变量 VISUAL_REPORT_DIR 改根目录）")
+    ap.add_argument("--out-dir", help="输出目录（默认是项目里的 .claude/reports/，git 会忽略；设环境变量 VISUAL_REPORT_DIR 可改成集中存放）")
     ap.add_argument("--title", help="标题（默认取 front matter 的 title，或正文第一个一级标题）")
     ap.add_argument("--kind", choices=sorted(KIND_LABELS), help="plan=计划 result=结果 explain=解释 note=说明")
     ap.add_argument("--project", help="项目名（默认 git 仓库名或当前目录名）")
-    ap.add_argument("--open", action="store_true", help="生成后用系统默认浏览器打开")
+    ap.add_argument("--open", action="store_true", help="生成后用系统默认浏览器打开（在远程机器上自动改成 --serve）")
+    ap.add_argument("--serve", action="store_true", help="起一个只有你能连的小服务并打印链接和 SSH 转发命令（远程机器 / 集群用）")
     ap.add_argument("--no-copy", action="store_true", help="不把 .md 源文件复制到输出目录")
     ap.add_argument("--quiet", action="store_true", help="只输出生成的路径")
     args = ap.parse_args()
@@ -917,7 +958,7 @@ def main():
     if args.out:
         out = Path(args.out).expanduser().resolve()
     else:
-        out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else DEFAULT_BASE_DIR / safe_name(project)
+        out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else default_out_dir(project).resolve()
         stem = "%s_%s" % (now.strftime("%Y-%m-%d"), slugify(title))
         out, k = out_dir / (stem + ".html"), 2
         while out.exists() and not same_source(out, src):
@@ -930,14 +971,23 @@ def main():
         md_copy = out.with_suffix(".md")
         if md_copy.resolve() != src:
             shutil.copyfile(src, md_copy)
+    register(out, title, kind, project)
     if not args.quiet:
         print("标题：%s（%s）  项目：%s  大小：%.0f KB" % (title, KIND_LABELS[kind], project, out.stat().st_size / 1024))
-    if args.open:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import serve_reports
+    if args.open and serve_reports.is_remote():
+        print("这是远程机器，没有浏览器可开，改用报告服务 + SSH 转发：")
+        args.serve = True
+    elif args.open:
         opener = "open" if sys.platform == "darwin" else "xdg-open"
         try:
             subprocess.Popen([opener, str(out)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError:
             warn("打不开浏览器（没有 %s 命令），请手动打开下面的文件" % opener)
+    if args.serve:
+        info = serve_reports.ensure_running()
+        serve_reports.print_banner(info, report=out)
     print(out)
 
 

@@ -52,16 +52,16 @@ subtitle: 用户登录 1 小时后被莫名踢出的问题
 python3 <skill>/scripts/build_report.py 稿子.md --kind result
 ```
 
-最后一行输出 HTML 的绝对路径。默认放在 `~/.claude/visual-reports/<项目名>/日期_标题.html`（项目名取 git 仓库名或当前目录名，目录名没有意义时加 `--project 名字`；环境变量 `VISUAL_REPORT_DIR` 可以换根目录，`--out` 可以指定文件）。
+最后一行输出 HTML 的绝对路径。默认放在**项目自己的** `.claude/reports/日期_标题.html`（项目 = git 仓库根目录，不在仓库里就是当前目录；这个文件夹里自带一个只含 `*` 的 `.gitignore`，git 看不到它们）。放在项目里是因为桌面应用只能打开会话文件夹里的文件。项目名取仓库名，目录名没有意义时加 `--project 名字`；`--out-dir` / `--out` 可以指定位置；环境变量 `VISUAL_REPORT_DIR` 可以改成集中存放（集群上想放到一处时用）。
 **看一眼 stderr 的警告**：围栏没闭合、手写 SVG 不合法、流程图太宽，都会提示。
 
 ### 3. 展示给用户
 
 按你所在的环境选一种：
 
-- **有 `SendUserFile` 工具**（Claude 桌面应用）：`SendUserFile(files=[路径], display="render", caption="一句话说明这份报告", status="normal")`，页面会直接在侧栏里渲染出来。用户离开期间完成的长任务用 `status="proactive"`。
+- **有 `SendUserFile` 工具**（Claude 桌面应用）：`SendUserFile(files=[路径], display="render", caption="一句话说明这份报告", status="normal")`，页面会直接在侧栏里渲染出来。用户离开期间完成的长任务用 `status="proactive"`。文件必须在会话文件夹（项目目录）里，否则用户点开是空的，所以不要用 `--out` 把它放到项目外面。
 - **本机终端里的 Claude Code**（没有 SendUserFile）：编译时加 `--open`，用系统浏览器打开。
-- **远程机器 / 集群**：浏览器打不开、文件也发不出去，就把 HTML 路径和一条 `scp user@host:路径 .` 命令给用户，聊天里的摘要写完整一些。
+- **远程机器 / 集群**（有 `SSH_CONNECTION` 或 `CC_CLUSTER`）：编译时加 `--serve`。脚本会起一个只有用户本人能连的小服务（Unix socket），打印出报告链接、一条要用户在**自己电脑**上跑一次的 `ssh -fN -L …` 转发命令、以及「打不开的话」几行。**把这几行原样转给用户**，不要省略，尤其是 pkill 那一条：转发落到别的登录节点、本地端口被旧转发占着，是用户最常卡住的地方，而你看不到他电脑上的状态。同一个节点的转发只要做一次，之后的报告（以及 diff-review 之外的其他报告）都走它，服务重启也不用重做。已经生成的报告可以用 `python3 <skill>/scripts/serve_reports.py url 报告.html` 再打印一次链接。细节和排错见 `references/remote-clusters.md`。
 - 不要为了展示去发布 Artifact（那是上传到 claude.ai）。用户明确要一个能分享的链接时才用。
 - 不用自己开浏览器预览检查：编译没有警告就可以发。桌面应用里的浏览器面板是用户在看的东西，别拿来当预览器。
 
@@ -142,5 +142,5 @@ unit: 个
 - 组件里再套代码块时，内层**一定要写语言名**（```` ```python ````、```` ```text ````），或者把外层改成四个反引号。否则内层的 ``` 会被当成外层的结束（标准 Markdown 的规则），后面的内容会错位；脚本会警告。
 - 同一份 `.md` 改完重新编译，会覆盖之前生成的 HTML（按稿子路径识别），不会越攒越多；换一份稿子但标题相同，文件名会加 `-2`。
 - 不要用 mermaid，这里没有渲染器，会显示成源码。复杂的图用 `flow`，再复杂就手写 SVG（见 `references/diagrams.md`），用 `currentColor` 和 `var(--accent)` 这类页面变量取色，深色模式才不会糊成一片。
-- 报告目录里的旧文件不用清理，用户可能回头看。`.md` 稿子会一起留在旁边，改一改重新编译即可。
+- 报告目录里的旧文件不用清理，用户可能回头看。`.md` 稿子会一起留在旁边，改一改重新编译即可。每份报告都会登记到 `~/.claude/visual-reports/registry.json`，报告服务的首页按项目列出它们。
 - 脚本出错先看报错里的行号，再看 `python3 <skill>/scripts/build_report.py --help`。
