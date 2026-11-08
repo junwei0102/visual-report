@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: explain-tradeoff
+expected_outcome: |
+  The agent produces an HTML explain report via the visual-report build script (kind explain):
+  a tldr with the one-line recommendation, a plain-language explanation of what local disk vs
+  object storage means for checkpoints (terms like object storage / preemption explained with
+  [[term|tip]] or plain words), a diagram showing where data flows or what is lost on
+  preemption, a side-by-side comparison (compare block) of the two options with concrete
+  numbers from the prompt (20 x 8GB = 160GB per run), the pitfalls of each, and a clear
+  recommendation with its cost. Chat reply is a short summary.

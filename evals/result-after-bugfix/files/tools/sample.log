@@ -1,0 +1,4 @@
+2026-11-08T10:00:01 INFO /Users/me/app/main.log 200 12.5
+2026-11-08T10:00:02 INFO /Users/me/My Project/app.log 200 40.0
+2026-11-08T10:00:03 WARN /Users/me/app/main.log 500 103.2
+2026-11-08T10:00:04 INFO /Users/me/My Project/app.log 404 8.0

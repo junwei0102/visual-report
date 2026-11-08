@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: plan-before-speedup
+expected_outcome: |
+  The agent does NOT modify clean_data.py. It produces a plan report as an HTML file via the
+  visual-report build script (kind plan): a tldr block stating the suspected bottleneck
+  (the per-row Python loop over iterrows) and the intended approach (vectorised pandas),
+  numbered steps all marked as todo, the files it will touch, and the risks or decisions
+  for the user (e.g. output row order, behaviour parity). Jargon such as "vectorisation" is
+  explained in plain language. At least one diagram (flow) shows where the time goes.
+  The chat reply is a short summary (a few lines) pointing to the report, not a repeat of it.
+context:
+  scaffold_script: place-files.sh

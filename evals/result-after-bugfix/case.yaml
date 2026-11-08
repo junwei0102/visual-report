@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: result-after-bugfix
+expected_outcome: |
+  The agent fixes the bug (the line is split on whitespace so paths with spaces break the
+  field count; the fix should split on the known delimiter or limit the split) and verifies it
+  by running the script on tools/sample.log (which contains a path with a space). It then
+  produces an HTML result report via the visual-report build script (kind result): a tldr with
+  the one-line cause and outcome, a plain-language explanation of why it crashed (the term
+  "split" or the field layout explained), what changed (before/after), how it was verified,
+  and an honest note of what was not covered. Chat reply is a short summary pointing at the report.
+context:
+  scaffold_script: place-files.sh
