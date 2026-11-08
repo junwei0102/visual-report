@@ -254,22 +254,27 @@ def describe_report(path):
             "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(path.stat().st_mtime)) if path.is_file() else ""}
 
 
-def ensure_registered(file):
-    """没登记过的报告顺手登记上；返回它的登记项。"""
+def ensure_registered(file, project=None):
+    """没登记过的报告顺手登记上（给了 project 就按它归类）；返回它的登记项。"""
     path = str(Path(file).resolve())
     entries = load_registry()
     for e in entries:
         if e.get("path") == path:
+            if project and e.get("project") != project:
+                e["project"] = project
+                save_registry(entries)
             return e
     entry = describe_report(path)
+    if project:
+        entry["project"] = project
     entries.append(entry)
     save_registry(entries)
     return entry
 
 
-def url_for(info, file):
+def url_for(info, file, project=None):
     """报告文件 → 链接。"""
-    entry = ensure_registered(file)
+    entry = ensure_registered(file, project)
     url = "%s/%s/%s" % (base_url(info), urllib.parse.quote(entry["project"]), urllib.parse.quote(Path(entry["path"]).name))
     if info["mode"] == "tcp":
         url += "?token=" + load_token()
@@ -486,10 +491,10 @@ def ensure_running(listen=None, port=None, idle_hours=12.0):
     raise SystemExit("报告服务没起来，看看日志：%s" % LOG_FILE)
 
 
-def print_banner(info, report=None, prefix="   "):
+def print_banner(info, report=None, prefix="   ", project=None):
     """给用户看的说明：链接、转发命令、打不开怎么办。agent 把这些原样转给用户。"""
     if report:
-        print(prefix + "报告： " + url_for(info, report))
+        print(prefix + "报告： " + url_for(info, report, project))
     print(prefix + "所有报告的目录： " + index_url(info))
     if not info.get("remote"):
         return
@@ -515,7 +520,8 @@ def main():
         p.add_argument("--port", type=int, default=None, help="本地端口（也是转发用的端口），默认按用户和节点算一个固定值")
         p.add_argument("--idle-hours", type=float, default=12, help="多久没人访问就退出（0 = 不退出）")
     u = sub.add_parser("url", help="打印一份报告的链接和转发命令")
-    u.add_argument("file")
+    u.add_argument("file", nargs="+")
+    u.add_argument("--project", help="登记时归到哪个项目下（默认按文件位置猜）")
     sub.add_parser("status")
     sub.add_parser("stop")
     opts = ap.parse_args()
@@ -530,7 +536,9 @@ def main():
         return print_banner(info)
     if opts.cmd == "url":
         info = ensure_running()
-        return print_banner(info, report=opts.file)
+        for f in opts.file[:-1]:
+            print("   报告： " + url_for(info, f, opts.project))
+        return print_banner(info, report=opts.file[-1], project=opts.project)
     info = read_state()
     alive = server_alive(info)
     if opts.cmd == "status":

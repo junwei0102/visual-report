@@ -57,17 +57,17 @@ python3 <skill>/scripts/build_report.py 稿子.md --kind result
 
 ### 3. 展示给用户
 
-按你所在的环境选一种：
+不管在哪，编译时都加 `--serve`：脚本会起（或复用）一个只有用户本人能连的小服务，打印出这份报告的 `http://localhost:…` 链接。**把链接给用户**，浏览器里点开就是渲染好的页面；直接发文件不行，桌面应用的文件卡片打开是 HTML 源码。然后按环境再做一步：
 
-- **有 `SendUserFile` 工具**（Claude 桌面应用）：`SendUserFile(files=[路径], display="render", caption="一句话说明这份报告", status="normal")`，页面会直接在侧栏里渲染出来。用户离开期间完成的长任务用 `status="proactive"`。文件必须在会话文件夹（项目目录）里，否则用户点开是空的，所以不要用 `--out` 把它放到项目外面。
-- **本机终端里的 Claude Code**（没有 SendUserFile）：编译时加 `--open`，用系统浏览器打开。
-- **远程机器 / 集群**（有 `SSH_CONNECTION` 或 `CC_CLUSTER`）：编译时加 `--serve`。脚本会起一个只有用户本人能连的小服务（Unix socket），打印出报告链接、一条要用户在**自己电脑**上跑一次的 `ssh -fN -L …` 转发命令、以及「打不开的话」几行。**把这几行原样转给用户**，不要省略，尤其是 pkill 那一条：转发落到别的登录节点、本地端口被旧转发占着，是用户最常卡住的地方，而你看不到他电脑上的状态。同一个节点的转发只要做一次，之后的报告（以及 diff-review 之外的其他报告）都走它，服务重启也不用重做。已经生成的报告可以用 `python3 <skill>/scripts/serve_reports.py url 报告.html` 再打印一次链接。细节和排错见 `references/remote-clusters.md`。
+- **Claude 桌面应用**：聊天里给链接（写成 Markdown 链接），有内置浏览器工具（`mcp__Claude_Browser__navigate` / `preview_start`）的话顺手在里面打开这个链接，用户不用自己点。服务 12 小时没人访问会自动退出，链接里的端口和 token 不变，下次 `--serve` 或 `serve_reports.py start` 就又活了。
+- **本机终端里的 Claude Code**：再加 `--open`，用系统浏览器直接打开文件。
+- **远程机器 / 集群**（有 `SSH_CONNECTION` 或 `CC_CLUSTER`）：`--serve` 会改成监听 Unix socket。它会打印出报告链接、一条要用户在**自己电脑**上跑一次的 `ssh -fN -L …` 转发命令、以及「打不开的话」几行。**把这几行原样转给用户**，不要省略，尤其是 pkill 那一条：转发落到别的登录节点、本地端口被旧转发占着，是用户最常卡住的地方，而你看不到他电脑上的状态。同一个节点的转发只要做一次，之后的报告（以及 diff-review 之外的其他报告）都走它，服务重启也不用重做。已经生成的报告可以用 `python3 <skill>/scripts/serve_reports.py url 报告.html` 再打印一次链接。细节和排错见 `references/remote-clusters.md`。
 - 不要为了展示去发布 Artifact（那是上传到 claude.ai）。用户明确要一个能分享的链接时才用。
 - 不用自己开浏览器预览检查：编译没有警告就可以发。桌面应用里的浏览器面板是用户在看的东西，别拿来当预览器。
 
 ### 4. 聊天里只写摘要
 
-两到四行：结论一句话；「详细说明和图在旁边的报告里」；需要用户做的决定或下一步。不要把报告内容再复述一遍，也不要把 Markdown 稿子贴出来。
+两到四行：结论一句话；报告链接；需要用户做的决定或下一步。不要把报告内容再复述一遍，也不要把 Markdown 稿子贴出来。
 聊天是普通文本，`==高亮==`、`[[术语|解释]]` 这些只有报告里才会渲染，别带进聊天。
 
 ## 怎么写才「通俗易懂」

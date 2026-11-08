@@ -27,7 +27,7 @@ git clone <这个仓库> ~/.claude/skills/visual-report
 
 ## 报告在哪
 
-- Claude 桌面应用里：直接在侧栏渲染出来。
+- Claude 桌面应用里：Claude 给你一个 `http://localhost:…` 链接（本机上一个只有你能连的小服务），点开就是渲染好的页面；有内置浏览器时会直接在里面打开。
 - 终端里的 Claude Code：用系统浏览器打开。
 - 远程机器 / 集群上：Claude 会起一个只有你能连的小服务，并给你一条 `ssh -fN -L …` 命令。在自己电脑上跑一次，之后 `http://localhost:<端口>/` 就能看这台机器上所有的报告（见下面「在集群上用」）。
 - 文件存在项目自己的 `.claude/reports/` 里（git 会忽略），按日期和标题命名，旁边有 `.md` 源稿。想集中存放：环境变量 `VISUAL_REPORT_DIR`。
