@@ -1,0 +1,14 @@
+schema_version: "1.1"
+name: result-with-code-names
+expected_outcome: |
+  The plan and the results table refer to everything by code names (two approaches A1/A2,
+  five experiments E1-E5). The agent reads both files and produces an HTML result report via
+  the visual-report build script. The conclusion is right: full fine-tuning (A2) clearly beats
+  training only the classifier head (A1); adding data augmentation (E4) and also halving the
+  learning rate (E5) differ by only 0.2 points, so by the plan's own rule (under 0.5 points,
+  pick the shorter training time) E4 wins. The report says what each approach and experiment
+  is instead of leaning on the code names: no code names in the title or the tldr, and any
+  code name in the body comes with what it means the first time it appears. The steps block,
+  if used, renders as a list. The chat reply is a short summary without bare code names.
+context:
+  scaffold_script: place-files.sh

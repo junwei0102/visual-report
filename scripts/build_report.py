@@ -123,7 +123,11 @@ def render_figure_image(alt, src, ctx):
 FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})\s*([^\s`]*)\s*(.*)$")
 HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 HR_RE = re.compile(r"^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$")
-LIST_RE = re.compile(r"^(\s*)([-*+]|\d{1,3}[.)])\s+(.*)$")
+# 列表项：- * + 或 1. 1) 开头。也认没写 "- " 的状态行（[x] [ ] [~] [!] [-] 开头）：agent 写 steps 时常漏掉 "- "，
+# 不认的话整块会挤成一段。这种行的 marker 是空串。
+LIST_RE = re.compile(r"^(\s*)((?:[-*+]|\d{1,3}[.)])(?=\s)|(?=\[[ xX~!-]\]\s))\s*(.*)$")
+# 看着像列表、Markdown 却不认的行首（「1、」「•」「①」「（1）」「第一步」）：连着几行会被挤成一段，要提醒
+LISTLIKE_RE = re.compile(r"^(?:[•·●▪◦‣☐☑☒✓✔✗✘]|[①-⑳]|\d{1,3}、|[（(]\d{1,3}[)）]|第[一二三四五六七八九十\d]+[步点条项]|[a-zA-Z][.)、](?=\s))[\s:：]*")
 TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 HTML_START_RE = re.compile(r"^\s{0,3}<(?:/?([a-zA-Z][\w-]*)|(!--))")
 QUOTE_RE = re.compile(r"^\s{0,3}>\s?(.*)$")
@@ -206,7 +210,7 @@ def parse_blocks(lines, ctx):
             j = i + 2
             while j < n and lines[j].strip() and "|" in lines[j]:
                 j += 1
-            out.append(render_table(lines[i], lines[i + 1], lines[i + 2:j], ctx))
+            out.append(render_table(lines[i], lines[i + 1], lines[i + 2:j], ctx, ctx["line_base"] + i + 1))
             i = j
             continue
         if QUOTE_RE.match(line):
@@ -234,6 +238,11 @@ def parse_blocks(lines, ctx):
                 break
             para.append(lines[j].strip())
             j += 1
+        listish = [p for p in para if LISTLIKE_RE.match(p)]
+        if len(listish) >= 2:
+            warn("第 %d 行开始的一段里有 %d 行以「%s」这类写法开头，看着像列表，但会挤成一段显示。"
+                 "请改成每行以 `- ` 或 `1. ` 开头的 Markdown 列表"
+                 % (ctx["line_base"] + i + 1, len(listish), LISTLIKE_RE.match(listish[0]).group(0).strip()))
         out.append("<p>%s</p>" % render_inline("\n".join(para), ctx))
         i = j
     return "\n".join(out)
@@ -292,16 +301,18 @@ def check_svg(block, lineno):
 
 
 def marker_kind(marker):
-    return "ol" if marker[0].isdigit() else "ul"
+    return "ol" if marker[:1].isdigit() else "ul"   # 没写 "- " 的状态行 marker 为空，算无序
 
 
-def collect_list_block(lines, i):
+def collect_list_block(lines, i, any_kind=False):
+    """any_kind：- 和 1. 混用也算同一个列表（steps 里用，不然后半截会另起一个普通列表）"""
     n = len(lines)
     first = LIST_RE.match(lines[i])
     base, kind = len(first.group(1)), marker_kind(first.group(2))
 
     def same_list_item(lm):
-        return lm and (len(lm.group(1)) > base or (len(lm.group(1)) == base and marker_kind(lm.group(2)) == kind))
+        return lm and (len(lm.group(1)) > base or
+                       (len(lm.group(1)) == base and (any_kind or not lm.group(2) or marker_kind(lm.group(2)) == kind)))
 
     j = i + 1
     while j < n:
@@ -348,7 +359,7 @@ def split_list_items(block):
 
 def render_list(block, ctx, steps=False):
     items = split_list_items(block)
-    ordered = items[0]["marker"][0].isdigit()
+    ordered = items[0]["marker"][:1].isdigit()
     tag = "ol" if (ordered or steps) else "ul"
     cls = ' class="steps"' if steps else ""
     out = ["<%s%s>" % (tag, cls)]
@@ -365,7 +376,9 @@ def render_list(block, ctx, steps=False):
             if bm:
                 title, body = bm.group(1), bm.group(2)
             else:
-                title, body = first, ""
+                # 没写 **标题**：冒号前面够短就拿它当标题，免得一整行都是粗体
+                cm = re.match(r"^([^\n]{1,30}?)(?:：|:\s)\s*(\S.*)$", first, re.S)
+                title, body = (cm.group(1), cm.group(2)) if cm else (first, "")
             body_html = ("<p>%s</p>" % render_inline(body, ctx) if body.strip() else "") + rest_html
             out.append('<li class="%s"><div class="step-num"></div><div class="step-main"><div class="step-title">%s</div>%s</div></li>'
                        % (status, render_inline(title, ctx), '<div class="step-body">%s</div>' % body_html if body_html else ""))
@@ -379,17 +392,22 @@ def render_list(block, ctx, steps=False):
     return "\n".join(out)
 
 
+TERM_SPAN_RE = re.compile(r"\[\[[^\]]*\]\]")
+
+
 def split_row(line):
     s = line.strip()
+    # [[术语|解释]] 里的竖线不是分列符（写成 \| 的也认），先换成占位符，拆完再换回来
+    s = TERM_SPAN_RE.sub(lambda m: m.group(0).replace("\\|", "|").replace("|", "\x02"), s)
     if s.startswith("|"):
         s = s[1:]
     if s.endswith("|") and not s.endswith("\\|"):
         s = s[:-1]
     cells = re.split(r"(?<!\\)\|", s)
-    return [c.replace("\\|", "|").strip() for c in cells]
+    return [c.replace("\\|", "|").replace("\x02", "|").strip() for c in cells]
 
 
-def render_table(head, sep, rows, ctx):
+def render_table(head, sep, rows, ctx, lineno=0):
     heads = split_row(head)
     aligns = []
     for c in split_row(sep):
@@ -410,8 +428,11 @@ def render_table(head, sep, rows, ctx):
     out = ['<div class="table-wrap"><table><thead><tr>']
     out += [cell("th", i, h) for i, h in enumerate(heads)]
     out.append("</tr></thead><tbody>")
-    for r in rows:
+    for k, r in enumerate(rows):
         cells = split_row(r)
+        if any(c for c in cells[len(heads):]):
+            warn("第 %d 行：这一行表格有 %d 格，表头只有 %d 格，多出来的内容会被丢掉。单元格里要写竖线的话写成 \\|"
+                 % (lineno + 2 + k, len(cells), len(heads)))
         cells += [""] * (len(heads) - len(cells))
         out.append("<tr>" + "".join(cell("td", i, c) for i, c in enumerate(cells[:len(heads)])) + "</tr>")
     out.append("</tbody></table></div>")
@@ -447,9 +468,15 @@ def render_fence(lang, info, body, ctx):
     if lang == "steps":
         first_list = next((k for k, l in enumerate(body) if LIST_RE.match(l)), None)
         if first_list is None:
-            return parse_blocks(body, sub)
+            items = [l.strip() for l in body if l.strip()]
+            if not items or any(FENCE_RE.match(l) for l in items):
+                return parse_blocks(body, sub)
+            # 一个列表标记都没有，多半是漏写了 "- "：按一行一步排，免得整块挤成一段
+            warn("第 %d 行的 steps 块里没有列表标记，已按「一行一步」排版。请每行写成 `- [x] **标题**：说明`" % ctx["line_base"])
+            body = ["- " + LISTLIKE_RE.sub("", l, count=1) for l in items]
+            first_list = 0
         head = parse_blocks(body[:first_list], sub)
-        j = collect_list_block(body, first_list)
+        j = collect_list_block(body, first_list, any_kind=True)
         tail = parse_blocks(body[j:], sub)
         return head + render_list(body[first_list:j], sub, steps=True) + tail
     if lang in ("compare", "cards"):
@@ -819,6 +846,45 @@ def render_bar(info, body, ctx):
 
 
 # --------------------------------------------------------------------------- 整体
+# 像「P6」「A1」「E2b」的代号：大写字母打头、跟一两位数字。多半是干活时给任务、实验、方案起的名字，用户不记得指什么
+CODE_NAME_RE = re.compile(r"(?<![A-Za-z0-9_./#-])([A-Z]{1,2}\d{1,2}[a-z]?)(?![A-Za-z0-9_])")
+COMMON_CODES = {"F1", "L1", "L2", "L4", "T4", "A10", "A40", "S3", "R2", "MP3", "MP4", "M1", "M2", "M3", "M4",
+                "Q1", "Q2", "Q3", "Q4", "H1", "H2", "H3", "H4", "H5", "H6"}
+
+
+def check_code_names(title, body_html):
+    """标题、结论框、正文里出现代号又没就地写清楚指什么，就提醒。"""
+    hover = set()
+    for m in re.finditer(r'<span class="term"[^>]*data-tip="[^"]*"[^>]*>(.*?)</span>', body_html):
+        hover.update(CODE_NAME_RE.findall(m.group(1)))      # 悬停里解释过的也算写清楚了
+
+    def plain(h):
+        h = re.sub(r"<(pre|code)\b[^>]*>.*?</\1>", " ", h, flags=re.S)   # 代码里的不管
+        return _html.unescape(re.sub(r"<[^>]+>", " ", h))
+
+    def unexplained(s, use_hover=True):
+        found, ok = [], set()
+        for m in CODE_NAME_RE.finditer(s):
+            tok = m.group(1)
+            before, after = s[:m.start()].rstrip()[-1:], s[m.end():].lstrip()[:1]
+            if (before and before in "（(") or (after and after in "（("):
+                ok.add(tok)              # 「学习率减半的那组（P6）」「P6（学习率减半）」：就地写清楚了
+            elif tok not in found and tok not in COMMON_CODES:
+                found.append(tok)
+        return [t for t in found if t not in ok and not (use_hover and t in hover)]
+
+    tldr = re.search(r'<section class="tldr">(.*?)</section>', body_html, re.S)
+    problems = [(where, toks) for where, toks in (
+        ("标题", unexplained(title, use_hover=False)),
+        ("结论框", unexplained(plain(tldr.group(1))) if tldr else []),
+        ("正文", unexplained(plain(body_html)))) if toks]
+    if problems:
+        warn("；".join("%s里有 %s%s" % (w, "、".join(t[:8]), "等 %d 个" % len(t) if len(t) > 8 else "") for w, t in problems)
+             + "。这些像是干活时给任务、实验、方案起的代号，用户多半不记得指什么。标题和结论框里直接写它是什么；"
+               "正文里换成具体说法，或者第一次出现时写全称、括号里注明代号，比如「学习率减半的那组实验（P6）」。"
+               "如果是读者都认识的型号、指标名，可以忽略这条")
+
+
 def parse_front_matter(text):
     meta = {}
     if text.startswith("---"):
@@ -941,6 +1007,7 @@ def main():
 
     ctx = {"kind": kind, "base_dir": src.parent, "line_base": skipped}
     body_html = parse_blocks(lines, ctx)
+    check_code_names(title, body_html)
 
     subtitle = meta.get("subtitle", "")
     meta_parts = ["<span>%s</span>" % esc(project), "<span>%s</span>" % now.strftime("%Y-%m-%d %H:%M")]
