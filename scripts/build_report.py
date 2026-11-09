@@ -939,6 +939,7 @@ def register(out, title, kind, project):
                 entries = []
         entries = [e for e in entries if e.get("path") != str(out) and Path(e.get("path", "")).is_file()]
         entries.append({"path": str(out), "title": title, "kind": kind, "project": project,
+                        "root": str(project_root()),  # 页面里提问时，解释器在这个目录里查代码
                         "time": _dt.datetime.now().strftime("%Y-%m-%d %H:%M")})
         tmp = REGISTRY.with_suffix(".tmp")
         tmp.write_text(json.dumps(entries, ensure_ascii=False, indent=1), encoding="utf-8")

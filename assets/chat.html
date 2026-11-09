@@ -1,0 +1,326 @@
+<!-- visual-report：页面里「选中就能问」的小聊天框。报告服务（serve_reports.py）发页面时注入；直接打开 HTML 文件时没有它。 -->
+<style>
+.vr-btn { font: inherit; font-size: 13px; line-height: 1.2; color: var(--accent-strong); background: var(--surface); border: 1px solid var(--accent-line); border-radius: 999px; padding: 6px 12px; cursor: pointer; box-shadow: 0 2px 10px rgba(20, 30, 40, .14); }
+.vr-btn:hover { background: var(--accent-soft); }
+#vr-ask { position: absolute; z-index: 62; }
+#vr-fab { position: fixed; z-index: 59; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
+#vr-chat { position: absolute; z-index: 61; display: flex; flex-direction: column; color: var(--fg); background: var(--surface); border: 1px solid var(--accent-line); border-radius: 12px; box-shadow: 0 12px 36px rgba(20, 30, 40, .22); font-size: 14px; line-height: 1.65; overflow: hidden; }
+#vr-chat.vr-panel { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 46px); }
+#vr-chat .vc-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface-2, var(--bg)); }
+#vr-chat .vc-title { flex: 1; min-width: 0; font-size: 13px; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#vr-chat .vc-title b { color: var(--fg); font-weight: 600; }
+#vr-chat .vc-x { font: inherit; font-size: 18px; line-height: 1; color: var(--fg-muted); background: none; border: 0; border-radius: 6px; padding: 3px 7px; cursor: pointer; }
+#vr-chat .vc-x:hover { color: var(--fg); background: var(--accent-soft); }
+#vr-chat .vc-msgs { flex: 1; min-height: 64px; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+#vr-chat .vc-q { align-self: flex-end; max-width: 85%; background: var(--accent-soft); border-radius: 10px; padding: 5px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+#vr-chat .vc-a { overflow-wrap: anywhere; }
+#vr-chat .vc-a p, #vr-chat .vc-a ul, #vr-chat .vc-a ol, #vr-chat .vc-a pre { margin: 0 0 .55em; }
+#vr-chat .vc-a > :last-child { margin-bottom: 0; }
+#vr-chat .vc-a ul, #vr-chat .vc-a ol { padding-left: 1.3em; }
+#vr-chat .vc-a li { margin: .15em 0; }
+#vr-chat .vc-a code { font-family: var(--font-mono); font-size: .88em; background: var(--accent-soft); border-radius: 4px; padding: 1px 4px; }
+#vr-chat .vc-a pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow: auto; }
+#vr-chat .vc-a pre code { background: none; padding: 0; }
+#vr-chat .vc-meta, #vr-chat .vc-hint { font-size: 12.5px; color: var(--fg-muted); }
+#vr-chat .vc-err { color: var(--bad); white-space: pre-wrap; }
+#vr-chat .vc-foot { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+#vr-chat textarea { flex: 1; min-width: 0; height: 36px; max-height: 120px; resize: none; font: inherit; font-size: 14px; line-height: 1.5; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; }
+#vr-chat textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+#vr-chat .vc-send { font: inherit; font-size: 13px; color: var(--surface); background: var(--accent); border: 0; border-radius: 8px; padding: 0 14px; cursor: pointer; }
+#vr-chat .vc-send:disabled { opacity: .45; cursor: default; }
+.vr-spin { display: inline-block; width: 11px; height: 11px; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--accent-line); border-top-color: var(--accent); border-radius: 50%; animation: vr-spin .8s linear infinite; }
+@keyframes vr-spin { to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  #vr-chat, #vr-chat.vr-panel { position: fixed; left: 8px !important; right: 8px !important; top: auto !important; bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important; width: auto !important; max-height: 72vh !important; }
+}
+@media print { #vr-ask, #vr-fab, #vr-chat { display: none !important; } }
+</style>
+<script>
+(function () {
+  "use strict";
+  var CFG = window.__VR__ || {};
+  if (!CFG.token || !window.fetch || !Element.prototype.closest) return;
+  var MAX_SEL = 1500, DEFAULT_Q = "这是什么意思？用大白话解释一下。";
+  var scope = document.querySelector("main.page") || document.body;
+  var chat = null, askBtn = null, pending = null, settleTimer = null, mouseHeld = false, dirty = false;
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function elOf(n) { return n && (n.nodeType === 1 ? n : n.parentElement); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]; }); }
+  function trunc(s, n) { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n) + "…" : s; }
+
+  function api(method, path, body) {
+    return fetch(path, {method: method, credentials: "same-origin", cache: "no-store",
+      headers: {"Content-Type": "application/json", "X-VR-Token": CFG.token},
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || ("请求失败（HTTP " + r.status + "）"));
+        return j;
+      });
+    }, function () { throw new Error("连不上报告服务：它可能已经退出了。重新编译一次报告（--serve），或运行 serve_reports.py start。"); });
+  }
+
+  // ---- 回答是 Markdown：先整体转义，再认几种常用写法
+  function inline(s) {
+    var codes = [];
+    s = s.replace(/`([^`]+)`/g, function (_, c) { codes.push(c); return "\u0001" + (codes.length - 1) + "\u0001"; });
+    s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return s.replace(/\u0001(\d+)\u0001/g, function (_, i) { return "<code>" + codes[+i] + "</code>"; });
+  }
+  function md(src) {
+    var out = [], para = [], list = null, code = null;
+    function endPara() { if (para.length) { out.push("<p>" + inline(para.join("<br>")) + "</p>"); para = []; } }
+    function endList() {
+      if (!list) return;
+      out.push("<" + list.tag + ">" + list.items.map(function (x) { return "<li>" + inline(x) + "</li>"; }).join("") + "</" + list.tag + ">");
+      list = null;
+    }
+    esc(src).split("\n").forEach(function (l) {
+      if (code) { if (/^\s*```/.test(l)) { out.push("<pre><code>" + code.join("\n") + "</code></pre>"); code = null; } else code.push(l); return; }
+      if (/^\s*```/.test(l)) { endPara(); endList(); code = []; return; }
+      var m = l.match(/^\s*(?:[-*+•]|(\d+)[.)])\s+(.*)$/);
+      if (m) {
+        endPara();
+        var tag = m[1] ? "ol" : "ul";
+        if (!list || list.tag !== tag) { endList(); list = {tag: tag, items: []}; }
+        list.items.push(m[2]);
+        return;
+      }
+      var h = l.match(/^\s*#{1,6}\s+(.*)$/);
+      if (h) { endPara(); endList(); out.push("<p><strong>" + inline(h[1]) + "</strong></p>"); return; }
+      if (!l.trim()) { endPara(); endList(); return; }
+      if (list && /^\s{2,}\S/.test(l)) { list.items[list.items.length - 1] += " " + l.trim(); return; }
+      endList();
+      para.push(l.trim());
+    });
+    if (code) out.push("<pre><code>" + code.join("\n") + "</code></pre>");
+    endPara(); endList();
+    return out.join("");
+  }
+
+  // ---- 读选区：选中的文字、它所在的段落和小节、在页面上的位置
+  function nearestHeading(node) {
+    var hs = scope.querySelectorAll("h1, h2, h3"), last = "";
+    for (var i = 0; i < hs.length; i++) {
+      if (hs[i] === node || hs[i].contains(node) || (hs[i].compareDocumentPosition(node) & 4)) last = hs[i].textContent;
+      else break;
+    }
+    return trunc(last, 200);
+  }
+  function readPick() {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    var act = document.activeElement;
+    if (act && /^(INPUT|TEXTAREA)$/.test(act.tagName)) return null;
+    var range = sel.getRangeAt(0), a = elOf(range.commonAncestorContainer);
+    if (!a || a.closest("#vr-ask, #vr-fab, .vc-head, .vc-foot, .vc-q")) return null;
+    var inChat = !!(chat && chat.el.contains(a));
+    if (!inChat && !scope.contains(a)) return null;
+    var text = sel.toString().replace(/ /g, " ").trim();
+    if (!text || text.length > MAX_SEL || /^[\s.,;:!?'"`()\[\]{}，。；：！？、“”‘’（）【】《》〈〉「」『』…·\-]+$/.test(text)) return null;
+    var start = elOf(range.startContainer);
+    var block = start && start.closest("p, li, td, th, dd, dt, figcaption, blockquote, pre, h1, h2, h3, h4, .step-main, .callout, .tldr, figure");
+    var box = range.getBoundingClientRect(), rects = range.getClientRects(), end = rects[rects.length - 1] || box;
+    return {text: text, inChat: inChat, context: block ? trunc(block.textContent, 1500) : "",
+            heading: inChat ? "" : nearestHeading(start || a),
+            rect: {top: box.top + scrollY, bottom: box.bottom + scrollY, left: box.left + scrollX,
+                   endX: end.right + scrollX, endY: end.bottom + scrollY}};
+  }
+
+  function showAsk(p) {
+    hideAsk();
+    askBtn = el("button", "vr-btn", p.inChat ? "追问这个" : "这是什么？");
+    askBtn.id = "vr-ask";
+    askBtn.type = "button";
+    askBtn.title = "让 AI 结合这份报告和项目代码，用大白话解释选中的文字";
+    document.body.appendChild(askBtn);
+    var vw = document.documentElement.clientWidth, w = askBtn.offsetWidth, lo = scrollX + 8, hi = scrollX + vw - w - 8;
+    if (p.inChat) {  // 回答里选中的：按钮摆在浮层里面，点偏了也不会把浮层关掉
+      var cr = chat.el.getBoundingClientRect();
+      lo = Math.max(lo, cr.left + scrollX + 8);
+      hi = Math.min(hi, cr.right + scrollX - w - 8);
+    }
+    askBtn.style.left = Math.max(lo, Math.min(p.rect.endX + 6, hi)) + "px";
+    askBtn.style.top = (p.rect.endY + 6) + "px";
+    pending = p;
+  }
+  function hideAsk() { if (askBtn) askBtn.remove(); askBtn = null; pending = null; }
+
+  // ---- 对话
+  function busy() { return !!(chat && chat.msgs.some(function (m) { return m.status === "pending"; })); }
+  function openChat(p) {
+    hideAsk();
+    if (p && p.inChat && chat) {  // 在回答里又选中了不懂的词：接着在这个对话里问
+      window.getSelection().removeAllRanges();
+      return ask("「" + trunc(p.text, 200) + "」又是什么意思？");
+    }
+    closeChat();
+    chat = {sel: p ? p.text : "", context: p ? p.context : "", heading: p ? p.heading : "",
+            msgs: [], rect: p ? p.rect : null, above: null, room: 0};
+    buildChat();
+    if (p) { window.getSelection().removeAllRanges(); ask(DEFAULT_Q); }
+    else chat.input.focus();
+  }
+  function buildChat() {
+    var c = chat, box = el("div"), head = el("div", "vc-head"), title = el("div", "vc-title");
+    box.id = "vr-chat";
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", "问问这份报告");
+    if (c.sel) {
+      title.appendChild(document.createTextNode("问："));
+      title.appendChild(el("b", null, "「" + trunc(c.sel, 60) + "」"));
+      title.title = c.sel;
+    } else title.appendChild(el("b", null, "问问这份报告"));
+    var x = el("button", "vc-x", "×");
+    x.type = "button";
+    x.title = "关闭（Esc）";
+    x.addEventListener("click", closeChat);
+    head.appendChild(title);
+    head.appendChild(x);
+    var msgs = el("div", "vc-msgs");
+    if (!c.sel) msgs.appendChild(el("div", "vc-hint", "关于这份报告，有什么看不懂的都可以问。也可以在正文里选中一段文字，点「这是什么？」。"));
+    var foot = el("div", "vc-foot"), input = el("textarea"), send = el("button", "vc-send", "发送");
+    input.rows = 1;
+    input.placeholder = c.sel ? "接着问…（Enter 发送，Shift+Enter 换行）" : "比如：这次改动会影响到我吗？";
+    send.type = "button";
+    send.addEventListener("click", submit);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); }
+    });
+    input.addEventListener("input", function () { input.style.height = "36px"; input.style.height = Math.min(120, input.scrollHeight) + "px"; });
+    foot.appendChild(input);
+    foot.appendChild(send);
+    box.appendChild(head);
+    box.appendChild(msgs);
+    box.appendChild(foot);
+    if (!c.rect) box.classList.add("vr-panel");
+    document.body.appendChild(box);
+    c.el = box; c.box = msgs; c.input = input; c.send = send;
+    place();
+  }
+  function submit() {
+    if (!chat) return;
+    var q = chat.input.value.trim();
+    if (!q || busy()) return;
+    chat.input.value = "";
+    chat.input.style.height = "36px";
+    ask(q);
+  }
+  function ask(q) {
+    var c = chat;
+    if (!c || busy()) return;
+    var history = c.msgs.filter(function (m) { return m.status === "done"; }).map(function (m) { return {q: m.q, a: m.a}; });
+    var m = {q: q, a: "", status: "pending", tools: [], offset: 0, chat: c};
+    c.msgs.push(m);
+    addMsg(m);
+    update(m);
+    api("POST", "/api/ask", {report: CFG.report, selection: c.sel, context: c.context, heading: c.heading, question: q, history: history})
+      .then(function (r) { m.job = r.job; if (chat !== c) return cancel(m); poll(m); })
+      .catch(function (e) { m.status = "error"; m.error = e.message; update(m); });
+  }
+  function poll(m) {
+    if (chat !== m.chat || m.status !== "pending") return cancel(m);
+    api("GET", "/api/job?id=" + encodeURIComponent(m.job) + "&since=" + m.offset)
+      .then(function (r) {
+        if (r.text) m.a += r.text;
+        m.offset = r.offset;
+        m.tools = r.tools || m.tools;
+        if (r.done) { m.status = r.error ? "error" : "done"; m.error = r.error; }
+        update(m);
+        if (!r.done) setTimeout(function () { poll(m); }, 450);
+      })
+      .catch(function (e) { m.status = "error"; m.error = e.message; update(m); });
+  }
+  function cancel(m) {  // 关掉了还没答完的：停掉后台那次回答，省 token
+    if (m.job && m.status === "pending") api("POST", "/api/cancel", {job: m.job}).catch(function () {});
+    if (m.status === "pending") m.status = "cancelled";
+  }
+  function addMsg(m) {
+    var c = m.chat, hint = c.box.querySelector(".vc-hint");
+    if (hint) hint.remove();
+    if (!(c.sel && c.msgs.length === 1 && m.q === DEFAULT_Q)) c.box.appendChild(el("div", "vc-q", m.q));  // 标题已经说了问的是什么
+    m.el = el("div", "vc-a");
+    c.box.appendChild(m.el);
+  }
+  var TOOL_WORDS = {read: "看了", grep: "搜了", glob: "找了"};
+  function update(m) {
+    var c = m.chat;
+    if (chat !== c || !m.el) return;
+    var nearBottom = c.box.scrollHeight - c.box.scrollTop - c.box.clientHeight < 48;
+    var html = m.a ? md(m.a) : "";
+    if (m.status === "pending") {
+      var t = m.tools[m.tools.length - 1];
+      var what = t ? (TOOL_WORDS[t.tool] || "用了") + " " + trunc(t.arg, 60) : (m.a ? "" : "正在想…");
+      html += '<div class="vc-meta"><span class="vr-spin"></span>' + esc(what) + "</div>";
+    } else if (m.status === "error") {
+      html += '<div class="vc-err">' + esc(m.error || "出错了") + "</div>";
+    }
+    m.el.innerHTML = html;
+    c.send.disabled = busy();
+    if (nearBottom) c.box.scrollTop = c.box.scrollHeight;
+    place();
+  }
+  function place() {
+    var c = chat;
+    if (!c || !c.el) return;
+    var box = c.el, vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    if (window.matchMedia && window.matchMedia("(max-width: 640px)").matches) return;  // 手机上由 CSS 摆成底部抽屉
+    if (!c.rect) {
+      box.style.width = Math.min(480, vw - 32) + "px";
+      box.style.maxHeight = Math.min(560, vh * 0.7) + "px";
+      return;
+    }
+    var w = Math.min(560, vw - 32);
+    box.style.width = w + "px";
+    box.style.left = Math.max(scrollX + 16, Math.min(c.rect.left, scrollX + vw - w - 16)) + "px";
+    if (c.above === null) {  // 只决定一次，免得回答流进来时浮层上下乱跳
+      var below = scrollY + vh - c.rect.bottom - 16, above = c.rect.top - scrollY - 16;
+      c.above = below < 320 && above > below;
+      c.room = Math.max(220, Math.min(560, vh * 0.7, c.above ? above : below));
+    }
+    box.style.maxHeight = c.room + "px";
+    box.style.top = Math.max(scrollY + 8, c.above ? c.rect.top - box.offsetHeight - 8 : c.rect.bottom + 8) + "px";
+  }
+  function closeChat() {
+    if (!chat) return;
+    chat.msgs.forEach(cancel);
+    if (chat.el) chat.el.remove();
+    chat = null;
+  }
+
+  // ---- 选区稳定下来才算数：鼠标松开时，或者键盘 / 触屏改完选区后停一会儿
+  function settle() {
+    if (!dirty) return;
+    dirty = false;
+    var p = readPick();
+    if (p) showAsk(p);
+    else if (askBtn && !mouseHeld) hideAsk();
+  }
+  function settleSoon(ms) { clearTimeout(settleTimer); settleTimer = setTimeout(settle, ms); }
+  document.addEventListener("selectionchange", function () { dirty = true; if (!mouseHeld) settleSoon(500); });
+  document.addEventListener("mousedown", function (e) {
+    clearTimeout(settleTimer);
+    if (askBtn && askBtn.contains(e.target)) { e.preventDefault(); return; }  // 保住选区
+    mouseHeld = e.button === 0;
+    var root = document.documentElement;
+    if (e.clientX >= root.clientWidth || e.clientY >= root.clientHeight) return;  // 在拖滚动条
+    hideAsk();
+    if (chat && chat.rect && !chat.el.contains(e.target) && !(e.target.closest && e.target.closest("#vr-fab"))) closeChat();
+  }, true);
+  document.addEventListener("mouseup", function () { mouseHeld = false; if (dirty) settleSoon(250); }, true);
+  document.addEventListener("click", function (e) {
+    if (askBtn && pending && askBtn.contains(e.target)) { e.preventDefault(); openChat(pending); }
+  }, true);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { hideAsk(); closeChat(); } });
+  window.addEventListener("resize", function () { if (chat) place(); });
+
+  var fab = el("button", "vr-btn", "问问这份报告");
+  fab.id = "vr-fab";
+  fab.type = "button";
+  fab.title = "关于这份报告，有什么看不懂的都可以问";
+  fab.addEventListener("click", function () { if (chat && !chat.rect) closeChat(); else openChat(null); });
+  document.body.appendChild(fab);
+})();
+</script>

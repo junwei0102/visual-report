@@ -39,6 +39,16 @@ ssh -fN -J <用户>@<登录地址> -L <端口>:<socket> <用户>@<节点名>
 
 两个 skill 的转发可以写在同一个 `Host` 段里。
 
+## 页面里提问
+
+服务发报告页面时会注入一个小聊天框（`assets/chat.html`）。用户选中文字提问时，服务在**它所在的节点上**跑一次 `claude -p`：
+
+- 只读：只给 Read、Grep、Glob 三个工具，权限模式是 dontAsk，读不了项目目录以外的文件，也不能改文件、跑命令。
+- 当前目录是报告所属的项目：生成报告时记下的 git 根目录；老报告没记，就按 `<项目>/.claude/reports/` 的位置推。
+- 最多同时 3 个，每个最多 5 分钟；用户关掉浮层时，还没答完的那次会被停掉。放在登录节点上，这点负载可以接受。
+- 走的还是同一条 SSH 转发，不用另外配置。接口要带页面里的 token（`~/.config/visual-report/token`），并且只接受 Host 是 localhost 的请求，挡住别的网站借浏览器调用。
+- 更新 skill 以后，下次 `--serve` 或 `start` 会发现跑着的是旧版本（版本号记在 `server.json` 里），自动换成新的。
+
 ## 排错
 
 | 现象 | 处理 |
@@ -48,4 +58,6 @@ ssh -fN -J <用户>@<登录地址> -L <端口>:<socket> <用户>@<节点名>
 | 页面 403「需要 token」 | 只有本地 TCP 模式才有 token；用 `--serve` 打印的完整链接（带 `?token=`），进过一次之后靠 cookie |
 | 页面 404 | 这份报告没登记（比如是手动复制过去的文件）：`serve_reports.py url 它的路径` 登记并拿链接 |
 | 想在 VS Code / Cursor 的 Remote-SSH 里看 | 它们只自动转发 TCP 端口：`serve_reports.py start --listen tcp`，然后在 Ports 面板转发那个端口。同节点其他用户也能连到这个端口，只靠 token 挡着 |
+| 页面里没有「问问这份报告」按钮 | 跑着的是旧版服务：在那个节点上 `serve_reports.py start`（会自动换成新版），再刷新页面。直接打开 HTML 文件时本来就没有 |
+| 提问时说找不到 claude 命令、或者没登录 | 在那台机器上装好并登录 Claude Code（`claude auth login`），然后 `serve_reports.py stop` 再 `start`。claude 不在 PATH 上就先设 `VISUAL_REPORT_CLAUDE` |
 | 日志 | `~/.cache/visual-report/server.log` |

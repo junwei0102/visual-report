@@ -33,6 +33,22 @@ git clone <这个仓库> ~/.claude/skills/visual-report
 - 远程机器 / 集群上：Claude 会起一个只有你能连的小服务，并给你一条 `ssh -fN -L …` 命令。在自己电脑上跑一次，之后 `http://localhost:<端口>/` 就能看这台机器上所有的报告（见下面「在集群上用」）。
 - 文件存在项目自己的 `.claude/reports/` 里（git 会忽略），按日期和标题命名，旁边有 `.md` 源稿。想集中存放：环境变量 `VISUAL_REPORT_DIR`。
 
+## 看不懂就选中问
+
+通过报告服务的链接打开报告时，页面里自带一个小聊天框：
+
+- 选中任何一段看不懂的文字，旁边会出现「这是什么？」。点一下，AI 就结合这份报告的原稿和项目里的代码，用大白话解释。
+- 解释下面可以接着追问；在解释里又选中不懂的词，点「追问这个」。
+- 右下角「问问这份报告」可以不选文字直接提问。
+
+它在报告服务所在的机器上跑 `claude -p`：只读（只能看文件、搜文件），只在报告所属的项目目录里，最多同时 3 个，每个最多 5 分钟，关掉浮层就停掉还没答完的那次。需要那台机器上有登录过的 Claude Code：
+
+- 集群上：装过并登录过 Claude Code 就行。
+- 本机如果只装了 Claude 桌面应用：应用自带的 claude 单独运行时要另外登录一次，在终端里运行 `claude auth login`（`claude` 不在 PATH 上就用应用里那个的完整路径）。
+- 想换个快一点的模型：`serve_reports.py start --model sonnet`，或者设环境变量 `VISUAL_REPORT_MODEL`。claude 不在常见位置时设 `VISUAL_REPORT_CLAUDE`。
+
+接口要带页面里的 token，并且只接受 localhost 来的请求，别的网页没法借你的浏览器调用它。更新 skill 之后，下次生成报告时旧的报告服务会自动换成新版。
+
 ## 在集群上用
 
 1. 把 skill 装到集群上：`ssh <集群> 'git clone https://github.com/junwei0102/visual-report.git ~/.claude/skills/visual-report'`，再在集群的 `~/.claude/CLAUDE.md` 里加上面那段「汇报方式」。
