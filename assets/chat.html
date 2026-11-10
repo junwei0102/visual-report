@@ -4,9 +4,10 @@
 .vr-btn:hover { background: var(--accent-soft); }
 #vr-ask { position: absolute; z-index: 62; }
 #vr-fab { position: fixed; z-index: 59; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
-#vr-chat { position: absolute; z-index: 61; display: flex; flex-direction: column; color: var(--fg); background: var(--surface); border: 1px solid var(--accent-line); border-radius: 12px; box-shadow: 0 12px 36px rgba(20, 30, 40, .22); font-size: 14px; line-height: 1.65; overflow: hidden; }
+#vr-chat { position: absolute; z-index: 61; display: flex; flex-direction: column; color: var(--fg); background: var(--surface); border: 1px solid var(--accent-line); border-radius: 12px; box-shadow: 0 12px 36px rgba(20, 30, 40, .22); font-size: 14px; line-height: 1.65; }
 #vr-chat.vr-panel { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 46px); }
-#vr-chat .vc-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface-2, var(--bg)); }
+#vr-chat.vr-float { position: fixed; }
+#vr-chat .vc-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface-2, var(--bg)); border-radius: 11px 11px 0 0; cursor: move; user-select: none; -webkit-user-select: none; touch-action: none; }
 #vr-chat .vc-title { flex: 1; min-width: 0; font-size: 13px; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #vr-chat .vc-title b { color: var(--fg); font-weight: 600; }
 #vr-chat .vc-x { font: inherit; font-size: 18px; line-height: 1; color: var(--fg-muted); background: none; border: 0; border-radius: 6px; padding: 3px 7px; cursor: pointer; }
@@ -28,10 +29,27 @@
 #vr-chat textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 #vr-chat .vc-send { font: inherit; font-size: 13px; color: var(--surface); background: var(--accent); border: 0; border-radius: 8px; padding: 0 14px; cursor: pointer; }
 #vr-chat .vc-send:disabled { opacity: .45; cursor: default; }
+/* 拖边框、拖角改大小。手柄一半在框外，不挡回答的滚动条和发送按钮 */
+#vr-chat .vc-rz { position: absolute; z-index: 1; touch-action: none; }
+#vr-chat .vc-rz-n, #vr-chat .vc-rz-s { left: 9px; right: 9px; height: 8px; cursor: ns-resize; }
+#vr-chat .vc-rz-e, #vr-chat .vc-rz-w { top: 9px; bottom: 9px; width: 8px; cursor: ew-resize; }
+#vr-chat .vc-rz-ne, #vr-chat .vc-rz-nw, #vr-chat .vc-rz-se, #vr-chat .vc-rz-sw { width: 14px; height: 14px; }
+#vr-chat .vc-rz-n, #vr-chat .vc-rz-ne, #vr-chat .vc-rz-nw { top: -5px; }
+#vr-chat .vc-rz-s, #vr-chat .vc-rz-se, #vr-chat .vc-rz-sw { bottom: -5px; }
+#vr-chat .vc-rz-e, #vr-chat .vc-rz-ne, #vr-chat .vc-rz-se { right: -5px; }
+#vr-chat .vc-rz-w, #vr-chat .vc-rz-nw, #vr-chat .vc-rz-sw { left: -5px; }
+#vr-chat .vc-rz-nw, #vr-chat .vc-rz-se { cursor: nwse-resize; }
+#vr-chat .vc-rz-ne, #vr-chat .vc-rz-sw { cursor: nesw-resize; }
+#vr-chat .vc-rz-se::after { content: ""; position: absolute; right: 9px; bottom: 9px; width: 9px; height: 9px; pointer-events: none; opacity: .55;
+  background: linear-gradient(135deg, transparent 50%, var(--fg-muted) 50%, var(--fg-muted) 58%, transparent 58%, transparent 72%, var(--fg-muted) 72%, var(--fg-muted) 80%, transparent 80%); }
+#vr-chat .vc-rz-se:hover::after { opacity: 1; }
+html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important; user-select: none !important; -webkit-user-select: none !important; }
 .vr-spin { display: inline-block; width: 11px; height: 11px; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--accent-line); border-top-color: var(--accent); border-radius: 50%; animation: vr-spin .8s linear infinite; }
 @keyframes vr-spin { to { transform: rotate(360deg); } }
 @media (max-width: 640px) {
-  #vr-chat, #vr-chat.vr-panel { position: fixed; left: 8px !important; right: 8px !important; top: auto !important; bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important; width: auto !important; max-height: 72vh !important; }
+  #vr-chat, #vr-chat.vr-panel { position: fixed; left: 8px !important; right: 8px !important; top: auto !important; bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important; width: auto !important; height: auto !important; max-height: 72vh !important; }
+  #vr-chat .vc-head { cursor: auto; touch-action: auto; }
+  #vr-chat .vc-rz { display: none; }
 }
 @media print { #vr-ask, #vr-fab, #vr-chat { display: none !important; } }
 </style>
@@ -177,13 +195,16 @@
     x.type = "button";
     x.title = "关闭（Esc）";
     x.addEventListener("click", closeChat);
+    head.title = "按住这里可以拖走；拖边框或右下角可以改大小";
+    head.addEventListener("pointerdown", function (e) { if (!e.target.closest(".vc-x")) startDrag(e, head, ""); });
     head.appendChild(title);
     head.appendChild(x);
     var msgs = el("div", "vc-msgs");
-    if (!c.sel) msgs.appendChild(el("div", "vc-hint", "关于这份报告，有什么看不懂的都可以问。也可以在正文里选中一段文字，点「这是什么？」。"));
+    if (!c.sel) msgs.appendChild(el("div", "vc-hint", "关于这份报告，有什么看不懂的都可以问。也可以在正文里选中一段文字，点「这是什么？」。这个框挡住字了，就按住标题栏把它拖开，拖边框或右下角可以改大小。"));
     var foot = el("div", "vc-foot"), input = el("textarea"), send = el("button", "vc-send", "发送");
     input.rows = 1;
-    input.placeholder = c.sel ? "接着问…（Enter 发送，Shift+Enter 换行）" : "比如：这次改动会影响到我吗？";
+    input.placeholder = c.sel ? "接着问…（Enter 发送）" : "比如：这次改动会影响到我吗？";
+    input.title = "Enter 发送，Shift+Enter 换行";
     send.type = "button";
     send.addEventListener("click", submit);
     input.addEventListener("keydown", function (e) {
@@ -195,7 +216,19 @@
     box.appendChild(head);
     box.appendChild(msgs);
     box.appendChild(foot);
-    if (!c.rect) box.classList.add("vr-panel");
+    ["n", "s", "e", "w", "ne", "nw", "se", "sw"].forEach(function (edge) {
+      var grip = el("div", "vc-rz vc-rz-" + edge);
+      grip.addEventListener("pointerdown", function (e) { startDrag(e, grip, edge); });
+      box.appendChild(grip);
+    });
+    if (parked && !narrow()) {  // 这一页里已经把小窗钉在别处了：新的提问也放在那里
+      c.float = true;
+      box.classList.add("vr-float");
+      box.style.width = startWidth(c, document.documentElement.clientWidth) + "px";
+      box.style.maxHeight = capHeight(window.innerHeight) + "px";
+      box.style.left = parked.left + "px";
+      box.style.top = parked.top + "px";
+    } else if (!c.rect) box.classList.add("vr-panel");
     document.body.appendChild(box);
     c.el = box; c.box = msgs; c.input = input; c.send = send;
     place();
@@ -262,26 +295,100 @@
     if (nearBottom) c.box.scrollTop = c.box.scrollHeight;
     place();
   }
+  // ---- 摆放。没动过的浮层贴着选中的文字（点「问问这份报告」打开的停在右下角），随页面滚动，点别处就关。
+  //      用户拖过或拉过大小之后，它就成了钉在屏幕上的小窗：不随页面滚动，点别处也不关；
+  //      这一页里之后的提问也出现在那里。拉过的大小记在浏览器里，所有报告通用
+  var EDGE = 8, MIN_W = 320, MIN_H = 180, SIZE_KEY = "vr-chat-size";
+  var saved = loadSize(), parked = null;
+  function loadSize() {
+    try { var s = JSON.parse(localStorage.getItem(SIZE_KEY)); if (s && s.w >= MIN_W && s.h >= MIN_H) return s; } catch (e) {}
+    return null;
+  }
+  function saveSize(w, h) {
+    saved = {w: Math.round(w), h: Math.round(h)};
+    try { localStorage.setItem(SIZE_KEY, JSON.stringify(saved)); } catch (e) {}
+  }
+  function narrow() { return !!(window.matchMedia && window.matchMedia("(max-width: 640px)").matches); }  // 手机上由 CSS 摆成底部抽屉，不能拖
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(v, hi)); }
+  function startWidth(c, vw) { return Math.min(saved ? saved.w : (c.rect ? 560 : 480), vw - 32); }
+  function capHeight(vh) { return saved ? Math.min(saved.h, vh - 2 * EDGE) : Math.min(560, vh * 0.7); }  // 回答再长，浮层最高也就这么高，多的在里面滚
   function place() {
     var c = chat;
-    if (!c || !c.el) return;
-    var box = c.el, vw = document.documentElement.clientWidth, vh = window.innerHeight;
-    if (window.matchMedia && window.matchMedia("(max-width: 640px)").matches) return;  // 手机上由 CSS 摆成底部抽屉
-    if (!c.rect) {
-      box.style.width = Math.min(480, vw - 32) + "px";
-      box.style.maxHeight = Math.min(560, vh * 0.7) + "px";
-      return;
-    }
-    var w = Math.min(560, vw - 32);
+    if (!c || !c.el || narrow()) return;
+    if (c.float) return keepInView(c);
+    var box = c.el, vw = document.documentElement.clientWidth, vh = window.innerHeight, cap = capHeight(vh), w = startWidth(c, vw);
     box.style.width = w + "px";
+    if (!c.rect) { box.style.maxHeight = cap + "px"; return; }
     box.style.left = Math.max(scrollX + 16, Math.min(c.rect.left, scrollX + vw - w - 16)) + "px";
     if (c.above === null) {  // 只决定一次，免得回答流进来时浮层上下乱跳
       var below = scrollY + vh - c.rect.bottom - 16, above = c.rect.top - scrollY - 16;
       c.above = below < 320 && above > below;
-      c.room = Math.max(220, Math.min(560, vh * 0.7, c.above ? above : below));
+      c.room = Math.max(Math.min(220, cap), Math.min(cap, c.above ? above : below));
     }
     box.style.maxHeight = c.room + "px";
     box.style.top = Math.max(scrollY + 8, c.above ? c.rect.top - box.offsetHeight - 8 : c.rect.bottom + 8) + "px";
+  }
+  function keepInView(c) {  // 钉住的小窗整个留在屏幕里：浏览器窗口变小、回答变长时往回收
+    var box = c.el, s = box.style, vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    if (box.offsetWidth > vw - 2 * EDGE) s.width = (vw - 2 * EDGE) + "px";
+    if (box.offsetHeight > vh - 2 * EDGE) s[c.fixedH ? "height" : "maxHeight"] = (vh - 2 * EDGE) + "px";
+    var r = box.getBoundingClientRect();
+    s.left = clamp(r.left, EDGE, vw - r.width - EDGE) + "px";
+    s.top = clamp(r.top, EDGE, vh - r.height - EDGE) + "px";
+  }
+  function pin(c) {  // 变成钉在屏幕上的小窗，位置和大小先保持原样
+    var box = c.el, r = box.getBoundingClientRect();
+    if (c.float) return r;
+    c.float = true;
+    box.classList.remove("vr-panel");
+    box.classList.add("vr-float");
+    box.style.left = r.left + "px";
+    box.style.top = r.top + "px";
+    box.style.width = r.width + "px";
+    return box.getBoundingClientRect();
+  }
+  function startDrag(e, grip, edge) {  // edge：拉的是哪条边或哪个角（n、se…）；拖标题栏移动时为空
+    var c = chat, root = document.documentElement;
+    if (!c || e.button !== 0 || !e.isPrimary || narrow()) return;
+    e.preventDefault();
+    hideAsk();
+    var r = pin(c), x0 = e.clientX, y0 = e.clientY;
+    if (edge) { c.el.style.height = r.height + "px"; c.el.style.maxHeight = "none"; c.fixedH = true; }
+    try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+    root.style.setProperty("--vr-cursor", getComputedStyle(grip).cursor);
+    root.classList.add("vr-dragging");
+    function move(ev) {
+      if (chat !== c) return;
+      var s = c.el.style, vw = root.clientWidth, vh = window.innerHeight, dx = ev.clientX - x0, dy = ev.clientY - y0;
+      if (!edge) {
+        s.left = clamp(r.left + dx, EDGE, vw - r.width - EDGE) + "px";
+        s.top = clamp(r.top + dy, EDGE, vh - c.el.offsetHeight - EDGE) + "px";
+        return;
+      }
+      var left = r.left, top = r.top, right = r.right, bottom = r.bottom;  // 对边不动，只挪拉着的那条边
+      if (edge.indexOf("e") >= 0) right = clamp(r.right + dx, left + MIN_W, vw - EDGE);
+      if (edge.indexOf("w") >= 0) left = clamp(r.left + dx, EDGE, right - MIN_W);
+      if (edge.indexOf("s") >= 0) bottom = clamp(r.bottom + dy, top + MIN_H, vh - EDGE);
+      if (edge.indexOf("n") >= 0) top = clamp(r.top + dy, EDGE, bottom - MIN_H);
+      s.left = left + "px";
+      s.top = top + "px";
+      s.width = (right - left) + "px";
+      s.height = (bottom - top) + "px";
+    }
+    function end() {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", end, true);
+      window.removeEventListener("pointercancel", end, true);
+      root.classList.remove("vr-dragging");
+      root.style.removeProperty("--vr-cursor");
+      if (chat !== c) return;  // 拖到一半按 Esc 关掉了
+      var b = c.el.getBoundingClientRect();
+      parked = {left: b.left, top: b.top};
+      if (edge) saveSize(b.width, b.height);
+    }
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", end, true);
+    window.addEventListener("pointercancel", end, true);
   }
   function closeChat() {
     if (!chat) return;
@@ -307,7 +414,7 @@
     var root = document.documentElement;
     if (e.clientX >= root.clientWidth || e.clientY >= root.clientHeight) return;  // 在拖滚动条
     hideAsk();
-    if (chat && chat.rect && !chat.el.contains(e.target) && !(e.target.closest && e.target.closest("#vr-fab"))) closeChat();
+    if (chat && chat.rect && !chat.float && !chat.el.contains(e.target) && !(e.target.closest && e.target.closest("#vr-fab"))) closeChat();
   }, true);
   document.addEventListener("mouseup", function () { mouseHeld = false; if (dirty) settleSoon(250); }, true);
   document.addEventListener("click", function (e) {
