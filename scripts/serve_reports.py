@@ -1024,7 +1024,10 @@ def ensure_running(listen=None, port=None, idle_hours=12.0, claude=None, model=N
 
 
 def print_banner(info, report=None, prefix="   ", project=None):
-    """给用户看的说明：链接、转发命令、打不开怎么办。agent 把这些原样转给用户。"""
+    """给用户看的说明：链接、转发命令、打不开怎么办。agent 把这些原样转给用户。
+    远程时转发命令每次都要带上：用户电脑上的转发会断（睡眠、重启、断网），agent 看不到。"""
+    if info.get("remote"):
+        print(prefix + "【给 agent】这是远程机器：在聊天里给链接时，把下面几行原样转给用户，转发命令每次都带上，哪怕之前给过。")
     if report:
         print(prefix + "报告： " + url_for(info, report, project))
     print(prefix + "所有报告的目录： " + index_url(info))
@@ -1036,13 +1039,14 @@ def print_banner(info, report=None, prefix="   ", project=None):
     if not info.get("remote"):
         return
     node = info.get("node") or info["host"]
-    print(prefix + "服务跑在 %s 上（Unix socket，只有你本人能连）。在【你自己电脑】的终端里跑一次下面这条，"
-          "之后 %s 上所有报告都走这条转发，服务重启也不用重做；已经在跑就跳过：" % (node, node))
+    print(prefix + "服务跑在 %s 上（Unix socket，只有你本人能连），要经 SSH 转发才能打开上面的链接。" % node)
+    print(prefix + "还没开转发、或者链接打不开（电脑睡眠、重启后转发会断），就在【你自己电脑】的终端里跑一次下面这条；"
+          "开着的话不用再跑，%s 上所有报告共用这一条，服务重启也不用重做：" % node)
     print(prefix + "  " + forward_command(info))
     if not info.get("nodeAddress") and not info.get("loginAddress"):
         print(prefix + "（<登录地址> 换成你平时 ssh 登录这里用的名字，或者在这台机器上设好 VISUAL_REPORT_SSH_HOST。）")
     print(prefix + "第一次可能要过一次二次验证（MFA）、确认一次主机指纹。")
-    print(prefix + "打不开的话：")
+    print(prefix + "跑了还是打不开的话：")
     print(prefix + "  · ssh 报 Address already in use：本地端口被旧的转发占着，先 pkill -f -- \"-L %d:\" 再重跑上面那条。" % info["port"])
     print(prefix + "  · ssh 报 connect failed / open failed：服务停了或换了节点，让 agent 重新 start，用它新给的命令。")
     print(prefix + "  · 总在 %s 上跑 Claude 的话，可以把 ssh config 固定到这个节点并自动带上转发（见 references/remote-clusters.md）。" % node)
