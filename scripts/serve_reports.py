@@ -19,8 +19,8 @@ serve_reports.py —— 用一个只有你本人能连的小服务把 visual-rep
 
 报告页面里可以直接提问：服务发页面时注入一个小聊天框（assets/chat.html）。用户选中看不懂的文字，
 服务就在报告所属的项目目录里跑一次只读的 `claude -p`，用大白话解释，答案流式显示，还能追问。
-需要这台机器上有登录过的 Claude Code。`start --model sonnet` 或环境变量 VISUAL_REPORT_MODEL 换模型，
-VISUAL_REPORT_CLAUDE 指定 claude 的路径。接口要带 token，并且只认 localhost 来的请求。
+需要这台机器上有登录过的 Claude Code。提问框标题栏的 ⚙ 能换回答用的模型和思考力度（记在浏览器里）；
+`start --model sonnet` 或环境变量 VISUAL_REPORT_MODEL 改的是 ⚙ 里「默认」用的模型，VISUAL_REPORT_CLAUDE 指定 claude 的路径。接口要带 token，并且只认 localhost 来的请求。
 只依赖 Python ≥ 3.8 标准库。
 """
 import argparse
@@ -57,13 +57,15 @@ STATE_FILE = CACHE_DIR / "server.json"
 LOG_FILE = CACHE_DIR / "server.log"
 TOKEN_FILE = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP / "token"
 KIND_LABELS = {"plan": "计划", "result": "结果", "explain": "解释", "note": "说明"}
-VERSION = 2                # 服务的版本：ensure_running 发现跑着的是旧版本就重启，新功能才会生效
+VERSION = 3                # 服务的版本：ensure_running 发现跑着的是旧版本就重启，新功能才会生效
 CHAT_SNIPPET = HERE.parent / "assets" / "chat.html"
 MAX_PARALLEL_JOBS = 3      # 最多同时跑几个 claude -p
 JOB_TIMEOUT = 300          # 一次回答最多跑几秒
 JOB_KEEP = 1800            # 答完的回答在内存里留多久（秒）
 MAX_SOURCE_CHARS = 40000   # 报告原稿最多放多少字进提示词
 EXPLAINER_TOOLS = "Read,Grep,Glob"
+EFFORTS = ("low", "medium", "high", "xhigh", "max")  # claude --effort 认的几档思考力度
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,79}$")  # 页面选的模型：别名或完整名；不能以 - 开头，免得被当成参数
 DENIED_TOOLS = "Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch"
 # 父 Claude Code 会话设的变量，嵌套的 claude -p 不能继承
 PARENT_SESSION_VARS = (
@@ -417,9 +419,10 @@ def stop_proc(proc):
 class Job:
     """一次提问：claude -p 的输出一边流进 text，页面按 offset 轮询取新增的部分。"""
 
-    def __init__(self, prompt, cwd):
+    def __init__(self, prompt, cwd, model=None, effort=None):
         self.id = secrets.token_hex(8)
         self.prompt, self.cwd = prompt, cwd
+        self.model, self.effort, self.model_used = model, effort, None
         self.text, self.tools = "", []
         self.done, self.error, self.cancelled = False, None, False
         self.proc, self.finished = None, None
@@ -450,7 +453,7 @@ class Explainer:
                                        stderr=subprocess.STDOUT, timeout=60).stdout.decode("utf-8", "replace")
             self.caps = {flag: flag in help_text for flag in (
                 "--include-partial-messages", "--tools", "--disallowedTools", "--no-session-persistence",
-                "--strict-mcp-config", "--settings")}
+                "--strict-mcp-config", "--settings", "--effort")}
             self.caps["dontAsk"] = "dontAsk" in help_text
             private_dir(CACHE_DIR)
             Path(self.settings_file).write_text(json.dumps({"disableAllHooks": True}), encoding="utf-8")
@@ -478,9 +481,10 @@ class Explainer:
         if not self.checked.is_set():
             return {"available": None, "error": None}
         return {"available": bool(self.bin) and not self.error, "error": self.error,
-                "version": self.version, "model": self.model}
+                "version": self.version, "model": self.model, "canSetEffort": bool(self.caps.get("--effort"))}
 
-    def command(self):
+    def command(self, model=None, effort=None):
+        """model / effort 是页面里选的；没选模型就用启动服务时给的（--model 或 VISUAL_REPORT_MODEL）。"""
         caps = self.caps
         cmd = [self.bin, "-p", "--output-format", "stream-json", "--verbose"]
         if caps.get("--include-partial-messages"):
@@ -497,11 +501,14 @@ class Explainer:
             cmd.append("--strict-mcp-config")
         if caps.get("--settings"):
             cmd += ["--settings", self.settings_file]
-        if self.model:
-            cmd += ["--model", self.model]
+        model = model or self.model
+        if model:
+            cmd += ["--model", model]
+        if effort:
+            cmd += ["--effort", effort]
         return cmd
 
-    def submit(self, prompt, cwd):
+    def submit(self, prompt, cwd, model=None, effort=None):
         self.checked.wait(90)
         if self.bin and not os.path.isfile(self.bin):  # 桌面应用升级后，旧版本自带的 claude 可能被删了：重新找
             self.checked.clear()
@@ -511,7 +518,9 @@ class Explainer:
         st = self.status()
         if not st["available"]:
             raise RuntimeError(st["error"] or "claude 命令还在检查中，过几秒再试")
-        job = Job(prompt, cwd)
+        if not self.caps.get("--effort"):  # 老版本的 claude 不认 --effort：照样回答，只是不调思考力度
+            effort = None
+        job = Job(prompt, cwd, model, effort)
         with self.lock:
             now = time.time()
             for key in [k for k, j in self.jobs.items() if j.done and now - (j.finished or now) > JOB_KEEP]:
@@ -558,7 +567,7 @@ class Explainer:
                 self._finish(job, "解释出错：%s" % e)
 
     def _exec(self, job):
-        proc = subprocess.Popen(self.command(), cwd=job.cwd, env=child_env(), stdin=subprocess.PIPE,
+        proc = subprocess.Popen(self.command(job.model, job.effort), cwd=job.cwd, env=child_env(), stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         job.proc = proc
         errors = []
@@ -579,7 +588,10 @@ class Explainer:
             except ValueError:
                 continue
             kind = ev.get("type")
-            if kind == "stream_event":
+            if kind == "system" and ev.get("subtype") == "init" and ev.get("model"):
+                with self.lock:
+                    job.model_used = str(ev["model"])
+            elif kind == "stream_event":
                 e = ev.get("event") or {}
                 if e.get("type") == "message_start" and has_text:
                     self._append(job, "\n\n")
@@ -805,8 +817,9 @@ class Handler(BaseHTTPRequestHandler):
                 since = 0
             with explainer.lock:
                 text, done, error, tools = job.text, job.done, job.error, list(job.tools)
+                model, effort = job.model_used, job.effort
             return self.send_json({"text": text[since:], "offset": len(text), "done": done,
-                                   "error": error, "tools": tools[-3:]})
+                                   "error": error, "tools": tools[-3:], "model": model, "effort": effort})
         return self.send_json({"error": "没有这个接口"}, 404)
 
     def do_POST(self):
@@ -843,9 +856,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "找不到这份报告：它不在登记表里，或者文件被删了"}, 404)
         if not str(body.get("question") or "").strip() and not str(body.get("selection") or "").strip():
             return self.send_json({"error": "问题是空的"}, 400)
+        model = str(body.get("model") or "").strip()
+        effort = str(body.get("effort") or "").strip()
+        if model and not MODEL_RE.match(model):
+            return self.send_json({"error": "模型名不对：%s" % clip(model, 40)}, 400)
+        if effort and effort not in EFFORTS:
+            return self.send_json({"error": "思考力度只能是 %s 之一" % "、".join(EFFORTS)}, 400)
         prompt, cwd = build_prompt(entry, body)
         try:
-            job = self.server.explainer.submit(prompt, cwd)
+            job = self.server.explainer.submit(prompt, cwd, model or None, effort or None)
         except RuntimeError as e:
             return self.send_json({"error": str(e)}, 503)
         return self.send_json({"job": job.id})
@@ -1060,7 +1079,7 @@ def main():
         p.add_argument("--listen", choices=("unix", "tcp"), default=None, help="默认：远程 unix，本地 tcp")
         p.add_argument("--port", type=int, default=None, help="本地端口（也是转发用的端口），默认按用户和节点算一个固定值")
         p.add_argument("--idle-hours", type=float, default=12, help="多久没人访问就退出（0 = 不退出）")
-        p.add_argument("--model", default=None, help="页面里提问用的模型，比如 sonnet（默认：你 Claude Code 的默认模型，或环境变量 VISUAL_REPORT_MODEL）")
+        p.add_argument("--model", default=None, help="页面里提问默认用的模型，比如 sonnet；页面 ⚙ 里另选了就用那个（不给就用环境变量 VISUAL_REPORT_MODEL，再没有就跟 Claude Code 一样）")
         p.add_argument("--claude", default=None, help="claude 命令的路径（默认自动找，或环境变量 VISUAL_REPORT_CLAUDE）")
     u = sub.add_parser("url", help="打印一份报告的链接和转发命令")
     u.add_argument("file", nargs="+")

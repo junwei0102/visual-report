@@ -41,12 +41,13 @@ git clone <这个仓库> ~/.claude/skills/visual-report
 - 解释下面可以接着追问；在解释里又选中不懂的词，点「追问这个」。
 - 右下角「问问这份报告」可以不选文字直接提问。
 - 浮层挡住正文了，就按住它的标题栏拖开；拖边框或右下角可以改大小。拖过或拉过之后，它就钉在屏幕上：滚动页面不跟着走，点别处也不关（点 × 或按 Esc 关），这一页后面的提问也出现在那里。拉过的大小浏览器会记住，打开别的报告也是这个大小。
+- 标题栏的 ⚙ 可以换回答用的模型和思考力度：模型从 Fable（最强，最慢）到 Haiku（最快），思考力度从低到最高。只影响之后的提问，选择记在浏览器里，所有报告通用；每条回答下面会用小字标出实际用的是哪个模型。
 
 它在报告服务所在的机器上跑 `claude -p`：只读（只能看文件、搜文件），只在报告所属的项目目录里，最多同时 3 个，每个最多 5 分钟，关掉浮层就停掉还没答完的那次。需要那台机器上有登录过的 Claude Code：
 
 - 集群上：装过并登录过 Claude Code 就行。
 - 本机如果只装了 Claude 桌面应用：应用自带的 claude 单独运行时要另外登录一次，在终端里运行 `claude auth login`（`claude` 不在 PATH 上就用应用里那个的完整路径）。
-- 想换个快一点的模型：`serve_reports.py start --model sonnet`，或者设环境变量 `VISUAL_REPORT_MODEL`。claude 不在常见位置时设 `VISUAL_REPORT_CLAUDE`。
+- 想让 ⚙ 里的「默认」换成别的模型：`serve_reports.py start --model sonnet`，或者设环境变量 `VISUAL_REPORT_MODEL`。claude 不在常见位置时设 `VISUAL_REPORT_CLAUDE`。
 
 接口要带页面里的 token，并且只接受 localhost 来的请求，别的网页没法借你的浏览器调用它。更新 skill 之后，下次生成报告时旧的报告服务会自动换成新版。
 

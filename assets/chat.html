@@ -12,6 +12,19 @@
 #vr-chat .vc-title b { color: var(--fg); font-weight: 600; }
 #vr-chat .vc-x { font: inherit; font-size: 18px; line-height: 1; color: var(--fg-muted); background: none; border: 0; border-radius: 6px; padding: 3px 7px; cursor: pointer; }
 #vr-chat .vc-x:hover { color: var(--fg); background: var(--accent-soft); }
+#vr-chat .vc-gear { font: inherit; font-size: 15px; line-height: 1; color: var(--fg-muted); background: none; border: 0; border-radius: 6px; padding: 4px 6px; cursor: pointer; }
+#vr-chat .vc-gear:hover, #vr-chat .vc-gear[aria-expanded="true"] { color: var(--fg); background: var(--accent-soft); }
+#vr-chat .vc-gear.on { color: var(--accent); }
+#vr-chat [hidden] { display: none !important; }
+/* 标题栏 ⚙ 展开的设置：回答用的模型和思考力度 */
+#vr-chat .vc-set { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+#vr-chat .vc-set label { display: flex; align-items: center; gap: 10px; }
+#vr-chat .vc-set label > span { flex: none; width: 4.5em; color: var(--fg-muted); }
+#vr-chat .vc-set select { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+#vr-chat .vc-set select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+#vr-chat .vc-set .vc-note { font-size: 12px; color: var(--fg-muted); }
+#vr-chat .vc-set .vc-warn { font-size: 12px; color: var(--warn); }
+#vr-chat .vc-by { margin-top: 4px; font-size: 12px; color: var(--fg-muted); }
 #vr-chat .vc-msgs { flex: 1; min-height: 64px; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 #vr-chat .vc-q { align-self: flex-end; max-width: 85%; background: var(--accent-soft); border-radius: 10px; padding: 5px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 #vr-chat .vc-a { overflow-wrap: anywhere; }
@@ -133,7 +146,7 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
     var act = document.activeElement;
     if (act && /^(INPUT|TEXTAREA)$/.test(act.tagName)) return null;
     var range = sel.getRangeAt(0), a = elOf(range.commonAncestorContainer);
-    if (!a || a.closest("#vr-ask, #vr-fab, .vc-head, .vc-foot, .vc-q")) return null;
+    if (!a || a.closest("#vr-ask, #vr-fab, .vc-head, .vc-foot, .vc-q, .vc-set, .vc-by")) return null;
     var inChat = !!(chat && chat.el.contains(a));
     if (!inChat && !scope.contains(a)) return null;
     var text = sel.toString().replace(/ /g, " ").trim();
@@ -191,16 +204,20 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
       title.appendChild(el("b", null, "「" + trunc(c.sel, 60) + "」"));
       title.title = c.sel;
     } else title.appendChild(el("b", null, "问问这份报告"));
-    var x = el("button", "vc-x", "×");
+    var gear = el("button", "vc-gear", "⚙"), x = el("button", "vc-x", "×");
+    gear.type = "button";
+    gear.setAttribute("aria-expanded", "false");
+    gear.addEventListener("click", function () { toggleSettings(c); });
     x.type = "button";
     x.title = "关闭（Esc）";
     x.addEventListener("click", closeChat);
     head.title = "按住这里可以拖走；拖边框或右下角可以改大小";
-    head.addEventListener("pointerdown", function (e) { if (!e.target.closest(".vc-x")) startDrag(e, head, ""); });
+    head.addEventListener("pointerdown", function (e) { if (!e.target.closest(".vc-x, .vc-gear")) startDrag(e, head, ""); });
     head.appendChild(title);
+    head.appendChild(gear);
     head.appendChild(x);
     var msgs = el("div", "vc-msgs");
-    if (!c.sel) msgs.appendChild(el("div", "vc-hint", "关于这份报告，有什么看不懂的都可以问。也可以在正文里选中一段文字，点「这是什么？」。这个框挡住字了，就按住标题栏把它拖开，拖边框或右下角可以改大小。"));
+    if (!c.sel) msgs.appendChild(el("div", "vc-hint", "关于这份报告，有什么看不懂的都可以问。也可以在正文里选中一段文字，点「这是什么？」。这个框挡住字了，就按住标题栏把它拖开，拖边框或右下角可以改大小。想换回答用的模型或思考力度，点标题栏的 ⚙。"));
     var foot = el("div", "vc-foot"), input = el("textarea"), send = el("button", "vc-send", "发送");
     input.rows = 1;
     input.placeholder = c.sel ? "接着问…（Enter 发送）" : "比如：这次改动会影响到我吗？";
@@ -214,6 +231,7 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
     foot.appendChild(input);
     foot.appendChild(send);
     box.appendChild(head);
+    box.appendChild(buildSettings(c));
     box.appendChild(msgs);
     box.appendChild(foot);
     ["n", "s", "e", "w", "ne", "nw", "se", "sw"].forEach(function (edge) {
@@ -230,7 +248,8 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
       box.style.top = parked.top + "px";
     } else if (!c.rect) box.classList.add("vr-panel");
     document.body.appendChild(box);
-    c.el = box; c.box = msgs; c.input = input; c.send = send;
+    c.el = box; c.box = msgs; c.input = input; c.send = send; c.gear = gear;
+    markGear(c);
     place();
   }
   function submit() {
@@ -249,7 +268,10 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
     c.msgs.push(m);
     addMsg(m);
     update(m);
-    api("POST", "/api/ask", {report: CFG.report, selection: c.sel, context: c.context, heading: c.heading, question: q, history: history})
+    var body = {report: CFG.report, selection: c.sel, context: c.context, heading: c.heading, question: q, history: history};
+    if (aiChoice.model) body.model = aiChoice.model;
+    if (aiChoice.effort) body.effort = aiChoice.effort;
+    api("POST", "/api/ask", body)
       .then(function (r) { m.job = r.job; if (chat !== c) return cancel(m); poll(m); })
       .catch(function (e) { m.status = "error"; m.error = e.message; update(m); });
   }
@@ -260,7 +282,7 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
         if (r.text) m.a += r.text;
         m.offset = r.offset;
         m.tools = r.tools || m.tools;
-        if (r.done) { m.status = r.error ? "error" : "done"; m.error = r.error; }
+        if (r.done) { m.status = r.error ? "error" : "done"; m.error = r.error; m.model = r.model; m.effort = r.effort; }
         update(m);
         if (!r.done) setTimeout(function () { poll(m); }, 450);
       })
@@ -289,11 +311,83 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
       html += '<div class="vc-meta"><span class="vr-spin"></span>' + esc(what) + "</div>";
     } else if (m.status === "error") {
       html += '<div class="vc-err">' + esc(m.error || "出错了") + "</div>";
+    } else if (m.status === "done" && m.model) {
+      html += '<div class="vc-by">' + esc(prettyModel(m.model) + (m.effort ? " · 思考力度" + shortLabel(EFFORTS, m.effort) : "")) + "</div>";
     }
     m.el.innerHTML = html;
     c.send.disabled = busy();
     if (nearBottom) c.box.scrollTop = c.box.scrollHeight;
     place();
+  }
+  // ---- 回答用的模型和思考力度：标题栏 ⚙ 里选，记在浏览器里，所有报告通用。
+  //      空字符串表示不指定：模型跟着报告服务的设置（start --model），再没有就跟 Claude Code 的默认
+  var CHOICE_KEY = "vr-chat-ai";
+  var MODELS = [["", "默认（跟 Claude Code 一样）"], ["fable", "Fable（最强，最慢）"], ["opus", "Opus（较强）"], ["sonnet", "Sonnet（较快）"], ["haiku", "Haiku（最快）"]];
+  var EFFORTS = [["", "默认"], ["low", "低（最快）"], ["medium", "中"], ["high", "高"], ["xhigh", "很高（慢）"], ["max", "最高（最慢）"]];
+  var aiChoice = loadChoice();
+  function inList(list, v) { return list.some(function (o) { return o[0] === v; }); }
+  function loadChoice() {
+    var s = null;
+    try { s = JSON.parse(localStorage.getItem(CHOICE_KEY)); } catch (e) {}
+    s = s && typeof s === "object" ? s : {};
+    return {model: inList(MODELS, s.model) ? s.model : "", effort: inList(EFFORTS, s.effort) ? s.effort : ""};
+  }
+  function saveChoice() { try { localStorage.setItem(CHOICE_KEY, JSON.stringify(aiChoice)); } catch (e) {} }
+  function shortLabel(list, v) {  // 「Opus（更强）」→「Opus」
+    for (var i = 0; i < list.length; i++) if (list[i][0] === v) return list[i][1].split("（")[0];
+    return v;
+  }
+  function prettyModel(id) {  // claude-opus-5-5 → Opus 5.5；认不出来就原样显示
+    var m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?!\d)/.exec(id || "");
+    return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] ? "." + m[3] : "") : id;
+  }
+  function buildSettings(c) {
+    var set = el("div", "vc-set");
+    set.hidden = true;
+    c.choiceModel = choiceRow(set, "模型", MODELS, "model");
+    c.choiceEffort = choiceRow(set, "思考力度", EFFORTS, "effort");
+    set.appendChild(el("div", "vc-note", "只影响之后的提问；选择记在这个浏览器里，所有报告通用。"));
+    c.choiceWarn = el("div", "vc-warn");
+    c.choiceWarn.hidden = true;
+    set.appendChild(c.choiceWarn);
+    c.set = set;
+    return set;
+  }
+  function choiceRow(set, name, list, key) {
+    var label = el("label"), select = el("select");
+    list.forEach(function (o) { var opt = el("option", null, o[1]); opt.value = o[0]; select.appendChild(opt); });
+    select.value = aiChoice[key];
+    select.addEventListener("change", function () { aiChoice[key] = select.value; saveChoice(); if (chat) markGear(chat); });
+    label.appendChild(el("span", null, name));
+    label.appendChild(select);
+    set.appendChild(label);
+    return select;
+  }
+  function markGear(c) {  // 选了非默认的，⚙ 变成强调色，悬停能看到现在用的是什么
+    var now = [];
+    if (aiChoice.model) now.push(shortLabel(MODELS, aiChoice.model));
+    if (aiChoice.effort) now.push("思考力度" + shortLabel(EFFORTS, aiChoice.effort));
+    c.gear.classList.toggle("on", now.length > 0);
+    c.gear.title = "回答用的模型和思考力度" + (now.length ? "（现在：" + now.join("，") + "）" : "");
+  }
+  function toggleSettings(c) {
+    c.set.hidden = !c.set.hidden;
+    c.gear.setAttribute("aria-expanded", c.set.hidden ? "false" : "true");
+    if (!c.set.hidden) checkServer(c);
+    place();
+  }
+  function checkServer(c) {  // 报告服务是旧版本、或者那台机器上的 claude 太老：选了也不生效，直接说
+    api("GET", "/api/ping").then(function (r) {
+      var ai = r.ai || {}, fresh = r.version >= 3, msg = "";
+      if (!fresh) msg = "报告服务还是旧版本，选了也不会生效：在它所在的机器上运行 serve_reports.py start 换成新版，再刷新页面。";
+      else if (ai.canSetEffort === false) msg = "那台机器上的 claude 版本太老，调不了思考力度；模型照样能换。";
+      if (ai.model) c.choiceModel.options[0].textContent = "默认（" + ai.model + "，启动报告服务时设的）";
+      c.choiceModel.disabled = !fresh;
+      c.choiceEffort.disabled = !fresh || ai.canSetEffort === false;
+      c.choiceWarn.textContent = msg;
+      c.choiceWarn.hidden = !msg;
+      place();
+    }).catch(function (e) { c.choiceWarn.textContent = e.message; c.choiceWarn.hidden = false; place(); });
   }
   // ---- 摆放。没动过的浮层贴着选中的文字（点「问问这份报告」打开的停在右下角），随页面滚动，点别处就关。
   //      用户拖过或拉过大小之后，它就成了钉在屏幕上的小窗：不随页面滚动，点别处也不关；
