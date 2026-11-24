@@ -250,6 +250,7 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
     document.body.appendChild(box);
     c.el = box; c.box = msgs; c.input = input; c.send = send; c.gear = gear;
     markGear(c);
+    checkServer(c);
     place();
   }
   function submit() {
@@ -320,31 +321,85 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
     place();
   }
   // ---- 回答用的模型和思考力度：标题栏 ⚙ 里选，记在浏览器里，所有报告通用。
-  //      空字符串表示不指定：模型跟着报告服务的设置（start --model），再没有就跟 Claude Code 的默认
+  //      空字符串表示不指定：跟着报告服务的默认后端（Antigravity / Claude Code）和设置
   var CHOICE_KEY = "vr-chat-ai";
-  var MODELS = [["", "默认（跟 Claude Code 一样）"], ["fable", "Fable（最强，最慢）"], ["opus", "Opus（较强）"], ["sonnet", "Sonnet（较快）"], ["haiku", "Haiku（最快）"]];
+  var FALLBACK_MODELS = [["", "默认（自动跟随当前后端）"], ["claude:fable", "Fable（最强，最慢）"], ["claude:opus", "Opus（较强）"], ["claude:sonnet", "Sonnet（较快）"], ["claude:haiku", "Haiku（最快）"]];
   var EFFORTS = [["", "默认"], ["low", "低（最快）"], ["medium", "中"], ["high", "高"], ["xhigh", "很高（慢）"], ["max", "最高（最慢）"]];
+  var MODEL_RE = /^(?:(?:agy|claude):)?[A-Za-z0-9._\[\]-]*$/;
+  var serverLabels = {};
+  var serverGroups = null;
   var aiChoice = loadChoice();
   function inList(list, v) { return list.some(function (o) { return o[0] === v; }); }
   function loadChoice() {
     var s = null;
     try { s = JSON.parse(localStorage.getItem(CHOICE_KEY)); } catch (e) {}
     s = s && typeof s === "object" ? s : {};
-    return {model: inList(MODELS, s.model) ? s.model : "", effort: inList(EFFORTS, s.effort) ? s.effort : ""};
+    var model = (typeof s.model === "string" && MODEL_RE.test(s.model)) ? s.model : "";
+    return {model: model, effort: inList(EFFORTS, s.effort) ? s.effort : ""};
   }
   function saveChoice() { try { localStorage.setItem(CHOICE_KEY, JSON.stringify(aiChoice)); } catch (e) {} }
   function shortLabel(list, v) {  // 「Opus（更强）」→「Opus」
     for (var i = 0; i < list.length; i++) if (list[i][0] === v) return list[i][1].split("（")[0];
     return v;
   }
-  function prettyModel(id) {  // claude-opus-5-5 → Opus 5.5；认不出来就原样显示
-    var m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?!\d)/.exec(id || "");
-    return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] ? "." + m[3] : "") : id;
+  function modelOptionLabel(v) {
+    if (!v) return "";
+    if (serverGroups) {
+      for (var i = 0; i < serverGroups.length; i++) {
+        var opts = serverGroups[i].options || [];
+        for (var j = 0; j < opts.length; j++) if (opts[j][0] === v) return opts[j][1].split("（")[0];
+      }
+    }
+    var bare = v.replace(/^(?:agy|claude):/, "");
+    return prettyModel(bare) || (v === "agy:" ? "Antigravity 默认" : v === "claude:" ? "Claude Code 默认" : v);
+  }
+  function prettyModel(id) {  // 优先用后端返回的显示名；再兜底美化 claude-* / gemini-*
+    if (!id) return "";
+    if (serverLabels[id]) return serverLabels[id];
+    var m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?!\d)/.exec(id);
+    if (m) return m[1].charAt(0).toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] ? "." + m[3] : "");
+    var g = /^gemini-([0-9.]+)-([a-z]+)(?:-(low|medium|high|xhigh))?$/i.exec(id);
+    if (g) return "Gemini " + g[1] + " " + g[2].charAt(0).toUpperCase() + g[2].slice(1) + (g[3] ? " (" + g[3] + ")" : "");
+    return id;
+  }
+  function populateModelSelect(select, groups, defaultText, curValue) {
+    select.innerHTML = "";
+    var def = el("option", null, defaultText);
+    def.value = "";
+    select.appendChild(def);
+    var seen = {"": true};
+    if (groups && groups.length) {
+      groups.forEach(function (g) {
+        var og = el("optgroup");
+        og.label = g.label;
+        (g.options || []).forEach(function (o) {
+          var opt = el("option", null, o[1]);
+          opt.value = o[0];
+          seen[o[0]] = true;
+          og.appendChild(opt);
+        });
+        select.appendChild(og);
+      });
+    } else {
+      FALLBACK_MODELS.slice(1).forEach(function (o) {
+        var opt = el("option", null, o[1]);
+        opt.value = o[0];
+        seen[o[0]] = true;
+        select.appendChild(opt);
+      });
+    }
+    if (curValue && !seen[curValue]) {
+      var extra = el("option", null, modelOptionLabel(curValue));
+      extra.value = curValue;
+      select.appendChild(extra);
+    }
+    select.value = curValue || "";
   }
   function buildSettings(c) {
     var set = el("div", "vc-set");
     set.hidden = true;
-    c.choiceModel = choiceRow(set, "模型", MODELS, "model");
+    c.choiceModel = choiceRow(set, "模型", FALLBACK_MODELS, "model");
+    if (serverGroups) populateModelSelect(c.choiceModel, serverGroups, "默认（自动跟随当前后端）", aiChoice.model);
     c.choiceEffort = choiceRow(set, "思考力度", EFFORTS, "effort");
     set.appendChild(el("div", "vc-note", "只影响之后的提问；选择记在这个浏览器里，所有报告通用。"));
     c.choiceWarn = el("div", "vc-warn");
@@ -356,6 +411,11 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
   function choiceRow(set, name, list, key) {
     var label = el("label"), select = el("select");
     list.forEach(function (o) { var opt = el("option", null, o[1]); opt.value = o[0]; select.appendChild(opt); });
+    if (key === "model" && aiChoice[key] && !inList(list, aiChoice[key])) {
+      var extra = el("option", null, modelOptionLabel(aiChoice[key]));
+      extra.value = aiChoice[key];
+      select.appendChild(extra);
+    }
     select.value = aiChoice[key];
     select.addEventListener("change", function () { aiChoice[key] = select.value; saveChoice(); if (chat) markGear(chat); });
     label.appendChild(el("span", null, name));
@@ -365,7 +425,7 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
   }
   function markGear(c) {  // 选了非默认的，⚙ 变成强调色，悬停能看到现在用的是什么
     var now = [];
-    if (aiChoice.model) now.push(shortLabel(MODELS, aiChoice.model));
+    if (aiChoice.model) now.push(modelOptionLabel(aiChoice.model));
     if (aiChoice.effort) now.push("思考力度" + shortLabel(EFFORTS, aiChoice.effort));
     c.gear.classList.toggle("on", now.length > 0);
     c.gear.title = "回答用的模型和思考力度" + (now.length ? "（现在：" + now.join("，") + "）" : "");
@@ -376,18 +436,26 @@ html.vr-dragging, html.vr-dragging * { cursor: var(--vr-cursor, move) !important
     if (!c.set.hidden) checkServer(c);
     place();
   }
-  function checkServer(c) {  // 报告服务是旧版本、或者那台机器上的 claude 太老：选了也不生效，直接说
+  function checkServer(c) {  // 读取可用后端（Antigravity / Claude Code）和模型列表；服务是旧版本或不可用时提示
     api("GET", "/api/ping").then(function (r) {
+      if (chat !== c) return;
       var ai = r.ai || {}, fresh = r.version >= 3, msg = "";
+      if (ai.modelLabels) serverLabels = ai.modelLabels;
+      if (ai.models && ai.models.length) serverGroups = ai.models;
+      var defBackend = ai.backend === "agy" ? "Antigravity" : ai.backend === "claude" ? "Claude Code" : "当前后端";
+      var defText = ai.model ? ("默认（" + modelOptionLabel(ai.model) + "，启动服务时设的）") : ("默认（" + defBackend + "）");
       if (!fresh) msg = "报告服务还是旧版本，选了也不会生效：在它所在的机器上运行 serve_reports.py start 换成新版，再刷新页面。";
-      else if (ai.canSetEffort === false) msg = "那台机器上的 claude 版本太老，调不了思考力度；模型照样能换。";
-      if (ai.model) c.choiceModel.options[0].textContent = "默认（" + ai.model + "，启动报告服务时设的）";
-      c.choiceModel.disabled = !fresh;
-      c.choiceEffort.disabled = !fresh || ai.canSetEffort === false;
+      else if (ai.available === false) msg = ai.error || "当前没有可用的 AI 后端。";
+      else if (ai.canSetEffort === false) msg = "当前后端不支持调思考力度；模型照样能换。";
+      if (serverGroups) populateModelSelect(c.choiceModel, serverGroups, defText, aiChoice.model);
+      else c.choiceModel.options[0].textContent = defText;
+      c.choiceModel.disabled = !fresh || ai.available === false;
+      c.choiceEffort.disabled = !fresh || ai.available === false || ai.canSetEffort === false;
       c.choiceWarn.textContent = msg;
       c.choiceWarn.hidden = !msg;
+      markGear(c);
       place();
-    }).catch(function (e) { c.choiceWarn.textContent = e.message; c.choiceWarn.hidden = false; place(); });
+    }).catch(function (e) { if (chat === c) { c.choiceWarn.textContent = e.message; c.choiceWarn.hidden = false; place(); } });
   }
   // ---- 摆放。没动过的浮层贴着选中的文字（点「问问这份报告」打开的停在右下角），随页面滚动，点别处就关。
   //      用户拖过或拉过大小之后，它就成了钉在屏幕上的小窗：不随页面滚动，点别处也不关；
